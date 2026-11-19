@@ -1,0 +1,63 @@
+[package]
+name = "zephyra-video"
+version = "0.1.0"
+edition = "2021"
+description = "Video decoding shaped after Chromium's media pipeline: VideoDecoder, DecoderSelector, H.264 bitstream parsing, DXVA2 hardware decode, vendored uavs3d (AVS3), dav1d (AV1), libvpx (VP8/VP9), libde265 (HEVC)"
+license = "MIT OR Apache-2.0"
+rust-version = "1.87"
+publish = false
+
+# 默认**什么都不开**。
+#
+# 这个 crate 的默认构建是**纯逻辑**：解码配置、缓冲、帧布局、解码器选择、
+# H.264 位流解析与 Annex-B 转换 —— 零依赖、零 unsafe，在没有 GPU 的机器上
+# 就能把全部逻辑断言掉。
+#
+# 硬件解码要碰 D3D11（DXVA2），那是 Windows 专属且必须 unsafe 的那一半，
+# 与 `zephyra-uia` 同一理由：默认构建不该编译设备代码。
+[features]
+default = []
+# Windows DXVA2 硬件解码（`ID3D11VideoDecoder`）。
+# 不开这个 feature，整个 crate 里一行设备代码都没有。
+dxva2 = ["dep:windows"]
+# AVS3 / UAVS3D 软件解码。`native/uavs3d/` 是 BSD-3 许可的 C 源码逐字节副本，
+# 只在打开这个 feature 时才由 build.rs 编译；`cc` 因此也是可选的。
+uavs3d = ["dep:cc"]
+# AV1 解码：vendored dav1d（BSD-2-Clause，Chromium 同款）。
+av1 = ["dep:cc"]
+# VP9 解码：vendored libvpx（BSD-3-Clause，Chromium 同款）。
+vp9 = ["dep:cc"]
+# VP8 解码：同一份 vendored libvpx（只是换 codec iface），不重复编 C 源码。
+vp8 = ["dep:cc"]
+# HEVC 解码：vendored libde265（LGPL-3.0+，从源码 copy）。
+hevc = ["dep:cc"]
+
+[build-dependencies]
+cc = { version = "1.6", optional = true }
+
+[dependencies]
+# 核心零依赖：视频解码的词汇（配置 / 缓冲 / 帧 / 选择器 / 位流解析）
+# 不需要任何外部 crate。
+
+[target.'cfg(windows)'.dependencies]
+# `windows 0.62` —— 与仓库其余 Windows crate 同一版。两个大版本的 COM 类型
+# 互不认识，跨 crate 指针强转是把配置错误伪装成一次 unsafe。
+#
+# 只在 `dxva2` feature 打开时才编译（`optional = true`）。
+windows = { version = "0.62", optional = true, features = [
+  # HMODULE / E_PENDING / D3DERR_WASSTILLDRAWING
+  "Win32_Foundation",
+  # D3D_DRIVER_TYPE / D3D_FEATURE_LEVEL
+  "Win32_Graphics_Direct3D",
+  # ID3D11Device / ID3D11VideoDevice / ID3D11VideoDecoder / ID3D11VideoContext
+  "Win32_Graphics_Direct3D11",
+  # DXGI_FORMAT_NV12 / DXGI_FORMAT_P010
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+] }
+
+[lints.rust]
+# 核心是纯逻辑，**禁止** unsafe；只有 `src/dxva2/` 那一个模块用
+# `#![allow(unsafe_code)]` 局部开口 —— unsafe 只允许出现在「必须直接碰系统」
+# 的那一小块里（`zephyra-base/README.md` 的纪律）。
+unsafe_code = "deny"
