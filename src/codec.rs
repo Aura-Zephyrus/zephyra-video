@@ -21,6 +21,12 @@ pub enum VideoCodec {
     /// AVS3（UAVS3D）。Chromium 的枚举里没有它 —— 这是本 crate 的扩展，
     /// 取第一个空闲判别值，避免动任何已有值（那些会进日志与直方图）。
     Av3 = 11,
+    /// VVC / H.266。本 crate 的扩展，沿用空闲判别值。
+    Vvc = 13,
+    /// EVC（MPEG-5 Part 1）。本 crate 的扩展，沿用空闲判别值。
+    Evc = 14,
+    /// MJPEG。Chromium 的 VideoCodec 没有它（走 FFmpeg），本 crate 的扩展。
+    Mjpeg = 15,
 }
 
 impl VideoCodec {
@@ -44,6 +50,9 @@ impl VideoCodec {
             VideoCodec::DolbyVision => "DolbyVision",
             VideoCodec::AV1 => "AV1",
             VideoCodec::Av3 => "AVS3",
+            VideoCodec::Vvc => "VVC",
+            VideoCodec::Evc => "EVC",
+            VideoCodec::Mjpeg => "MJPEG",
         }
     }
 }
@@ -93,6 +102,12 @@ pub enum VideoCodecProfile {
     HEVCHighThroughputScreenExtended = 36,
     DolbyVisionProfile10 = 37,
     DolbyVisionProfile20 = 38,
+    /// VVC Main10 profile（本 crate 只解 8bit，profile 值仍按标准保留）。本 crate 的扩展。
+    VvcProfileMain10 = 40,
+    /// EVC Baseline profile（xevd 的 `src_base` 路径）。本 crate 的扩展。
+    EvcProfileMain = 41,
+    /// MJPEG 没有 profile 之分。本 crate 的扩展。
+    MjpegAny = 42,
 }
 
 impl VideoCodecProfile {
@@ -138,6 +153,9 @@ impl VideoCodecProfile {
             | VideoCodecProfile::DolbyVisionProfile9
             | VideoCodecProfile::DolbyVisionProfile10
             | VideoCodecProfile::DolbyVisionProfile20 => VideoCodec::DolbyVision,
+            VideoCodecProfile::VvcProfileMain10 => VideoCodec::Vvc,
+            VideoCodecProfile::EvcProfileMain => VideoCodec::Evc,
+            VideoCodecProfile::MjpegAny => VideoCodec::Mjpeg,
         }
     }
 
@@ -184,6 +202,9 @@ impl VideoCodecProfile {
             VideoCodecProfile::DolbyVisionProfile9 => "DolbyVisionProfile9",
             VideoCodecProfile::DolbyVisionProfile10 => "DolbyVisionProfile10",
             VideoCodecProfile::DolbyVisionProfile20 => "DolbyVisionProfile20",
+            VideoCodecProfile::VvcProfileMain10 => "VvcProfileMain10",
+            VideoCodecProfile::EvcProfileMain => "EvcProfileMain",
+            VideoCodecProfile::MjpegAny => "MjpegAny",
         }
     }
 }

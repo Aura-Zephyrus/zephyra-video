@@ -41,6 +41,16 @@ pub enum VideoDecoderType {
     Uavs3d,
     /// vendored libde265（HEVC 软件解码）。
     Hevc,
+    /// vendored xevd（EVC 软件解码）。
+    Xevd,
+    /// vendored OpenH264（H.264 软件解码）。
+    OpenH264,
+    /// vendored vvdec（VVC 软件解码）。
+    Vvdec,
+    /// vendored libtheora（Theora 软件解码）。
+    Theora,
+    /// vendored libjpeg-turbo（MJPEG 软件解码）。
+    Mjpeg,
 }
 
 impl VideoDecoderType {
@@ -55,6 +65,11 @@ impl VideoDecoderType {
             VideoDecoderType::Dav1d => "dav1d",
             VideoDecoderType::Uavs3d => "uavs3d",
             VideoDecoderType::Hevc => "hevc",
+            VideoDecoderType::Xevd => "xevd",
+            VideoDecoderType::OpenH264 => "openh264",
+            VideoDecoderType::Vvdec => "vvdec",
+            VideoDecoderType::Theora => "theora",
+            VideoDecoderType::Mjpeg => "mjpeg",
         }
     }
 }

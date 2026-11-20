@@ -2,7 +2,7 @@
 name = "zephyra-video"
 version = "0.1.0"
 edition = "2021"
-description = "Video decoding shaped after Chromium's media pipeline: VideoDecoder, DecoderSelector, H.264 bitstream parsing, DXVA2 hardware decode, vendored uavs3d (AVS3), dav1d (AV1), libvpx (VP8/VP9), libde265 (HEVC)"
+description = "Video decoding shaped after Chromium's media pipeline: VideoDecoder, DecoderSelector, H.264 bitstream parsing, DXVA2 hardware decode, vendored uavs3d (AVS3), dav1d (AV1), libvpx (VP8/VP9), libde265 (HEVC), OpenH264 (H.264), xevd (EVC), vvdec (VVC), libtheora (Theora), libjpeg-turbo (MJPEG)"
 license = "MIT OR Apache-2.0"
 rust-version = "1.87"
 publish = false
@@ -31,6 +31,19 @@ vp9 = ["dep:cc"]
 vp8 = ["dep:cc"]
 # HEVC 解码：vendored libde265（LGPL-3.0+，从源码 copy）。
 hevc = ["dep:cc"]
+# EVC (MPEG-5) 解码：vendored xevd（BSD-3-Clause，Samsung）。
+evc = ["dep:cc"]
+# H.264 软件解码：vendored OpenH264（BSD-2-Clause，Cisco）。纯 C++ fallback，无汇编。
+h264 = ["dep:cc"]
+# VVC / H.266 解码：vendored vvdec（Clear BSD，Fraunhofer HHI）。
+vvc = ["dep:cc"]
+# Theora 解码：vendored libtheora + libogg headers（BSD-3，Xiph.org）。
+theora = ["dep:cc"]
+# MJPEG 解码：vendored libjpeg-turbo 2.1.5.1（BSD-3 / IJG）。
+mjpeg = ["dep:cc"]
+# 动态库模式：把 vendored C 编解码器链成共享库而非静态塞进 exe。
+# 需与具体 codec feature 组合使用（如 `dynamic,uavs3d`）。
+dynamic = []
 
 [build-dependencies]
 cc = { version = "1.6", optional = true }

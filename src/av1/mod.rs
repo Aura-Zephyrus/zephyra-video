@@ -14,8 +14,8 @@ use std::ffi::{c_int, c_void};
 use crate::buffer::DecoderBuffer;
 use crate::config::VideoDecoderConfig;
 use crate::decoder::{VideoDecoder, VideoDecoderType};
-use crate::frame::{VideoFrame, VideoPixelFormat};
-use crate::geometry::{Rect, Size};
+use crate::ffi_util::{frame_from_planes, LAYOUT_I420};
+use crate::frame::VideoFrame;
 use crate::status::{DecoderStatus, DecoderStatusCode};
 use crate::VideoCodec;
 
@@ -45,8 +45,8 @@ thread_local! {
     static OUTPUT: RefCell<Vec<VideoFrame>> = const { RefCell::new(Vec::new()) };
 }
 
-/// DAV1D_PIXEL_LAYOUT_I420 from dav1d/headers.h; only 8-bit 4:2:0 is handled.
-const PIXEL_LAYOUT_I420: c_int = 1;
+/// DAV1D_PIXEL_LAYOUT_I420 from dav1d/headers.h.
+const DAV1D_LAYOUT_I420: c_int = 1;
 
 extern "C" fn on_frame(
     w: c_int,
@@ -56,62 +56,16 @@ extern "C" fn on_frame(
     y: *const u8,
     ys: isize,
     u: *const u8,
-    _us: isize,
+    us: isize,
     v: *const u8,
     vs: isize,
 ) {
-    if w <= 0 || h <= 0 || bpc != 8 || layout != PIXEL_LAYOUT_I420 {
+    if layout != DAV1D_LAYOUT_I420 {
         return;
     }
-    let width = w as usize;
-    let height = h as usize;
-    let chroma_width = width.div_ceil(2);
-    let chroma_height = height.div_ceil(2);
-    let size = Size::new(width as u32, height as u32);
-    let visible = Rect::new(0, 0, size.width, size.height);
-
-    // dav1d shares one chroma stride for U and V; the shim passes it to both.
-    let Some(plane_y) = copy_plane(y, ys, width, height) else {
-        return;
-    };
-    let Some(plane_u) = copy_plane(u, vs, chroma_width, chroma_height) else {
-        return;
-    };
-    let Some(plane_v) = copy_plane(v, vs, chroma_width, chroma_height) else {
-        return;
-    };
-
-    if let Some(frame) = VideoFrame::from_cpu(
-        VideoPixelFormat::I420,
-        size,
-        visible,
-        size,
-        vec![plane_y, plane_u, plane_v],
-        0,
-        0,
-    ) {
+    if let Some(frame) = frame_from_planes(w, h, bpc, LAYOUT_I420, y, ys, u, us, v, vs) {
         OUTPUT.with(|sink| sink.borrow_mut().push(frame));
     }
-}
-
-/// Copy a C plane into tightly-packed bytes; `stride` is the C row pitch.
-fn copy_plane(src: *const u8, stride: isize, row_bytes: usize, rows: usize) -> Option<Vec<u8>> {
-    if src.is_null() || stride <= 0 {
-        return None;
-    }
-    let stride = usize::try_from(stride).ok()?;
-    if stride < row_bytes {
-        return None;
-    }
-    let mut out = vec![0u8; row_bytes.checked_mul(rows)?];
-    for row in 0..rows {
-        // SAFETY: dav1d guarantees each plane has `rows` rows of `stride` bytes.
-        let from = unsafe { src.add(row * stride) };
-        let to = &mut out[row * row_bytes..(row + 1) * row_bytes];
-        // SAFETY: source is C-owned, destination is a fresh Vec; no overlap.
-        unsafe { std::ptr::copy_nonoverlapping(from, to.as_mut_ptr(), row_bytes) };
-    }
-    Some(out)
 }
 
 /// dav1d software decoder.

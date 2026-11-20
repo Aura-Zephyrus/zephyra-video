@@ -118,6 +118,32 @@ fn required_buffer_size_covers_the_last_plane() {
 }
 
 #[test]
+fn yuv420p10_layout_uses_two_bytes_per_sample() {
+    let layout = VideoFrameLayout::create(VideoPixelFormat::YUV420P10, Size::new(64, 32)).unwrap();
+    assert_eq!(layout.num_planes(), 3);
+    assert_eq!(layout.planes()[0].stride, 128);
+    assert_eq!(layout.planes()[1].offset, 64 * 32 * 2);
+    assert_eq!(layout.planes()[1].stride, 64);
+    assert_eq!(layout.planes()[2].offset, (64 * 32 + 32 * 16) * 2);
+    // 亮度 64*32*2 + 色度两平面各 32*16*2
+    assert_eq!(layout.required_buffer_size(), 64 * 32 * 2 + 32 * 16 * 2 * 2);
+    assert_eq!(layout.plane_rows(1), 16);
+    assert_eq!(VideoPixelFormat::YUV420P10.bytes_per_pixel(), 3.0);
+}
+
+#[test]
+fn p010le_layout_is_two_semiplanar_planes() {
+    let layout = VideoFrameLayout::create(VideoPixelFormat::P010LE, Size::new(64, 32)).unwrap();
+    assert_eq!(layout.num_planes(), 2);
+    assert_eq!(layout.planes()[0].stride, 128);
+    assert_eq!(layout.planes()[1].offset, 64 * 32 * 2);
+    // 交错 UV：一行 32 个 16-bit 对 = 128 字节。
+    assert_eq!(layout.planes()[1].stride, 128);
+    assert_eq!(layout.plane_rows(1), 16);
+    assert_eq!(VideoPixelFormat::P010LE.bytes_per_pixel(), 3.0);
+}
+
+#[test]
 fn cpu_frame_accepts_matching_planes() {
     let size = Size::new(4, 4);
     let y = vec![0u8; 16];

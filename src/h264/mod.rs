@@ -7,6 +7,9 @@
 pub mod bit_reader;
 pub mod bit_writer;
 pub mod converter;
+#[cfg(feature = "h264")]
+#[allow(unsafe_code)]
+pub mod decoder;
 pub mod nal;
 pub mod parser;
 
@@ -16,6 +19,8 @@ pub use converter::{
     annex_b_to_avcc, extract_parameter_sets, is_access_unit_boundary_nal, H264ToAnnexBConverter,
     START_CODE_PREFIX,
 };
+#[cfg(feature = "h264")]
+pub use decoder::OpenH264Decoder;
 pub use nal::{
     find_start_code, parse_nalus, split_access_units, AvcDecoderConfigurationRecord, H264Nalu,
     NalUnitType,

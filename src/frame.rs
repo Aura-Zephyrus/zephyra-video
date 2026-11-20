@@ -225,6 +225,19 @@ impl VideoPixelFormat {
             | VideoPixelFormat::XR30
             | VideoPixelFormat::XB30 => 4.0,
             VideoPixelFormat::RGB24 => 3.0,
+            // 10/12-bit 4:2:0：每像素 1.5 个 16-bit 采样 = 3 字节。
+            VideoPixelFormat::YUV420P10
+            | VideoPixelFormat::YUV420P12
+            | VideoPixelFormat::P010LE
+            | VideoPixelFormat::YUV420AP10 => 3.0,
+            VideoPixelFormat::YUV422P10
+            | VideoPixelFormat::YUV422P12
+            | VideoPixelFormat::YUV422AP10
+            | VideoPixelFormat::P210LE => 4.0,
+            VideoPixelFormat::YUV444P10
+            | VideoPixelFormat::YUV444P12
+            | VideoPixelFormat::YUV444AP10
+            | VideoPixelFormat::P410LE => 6.0,
             _ => 0.0,
         }
     }
@@ -319,6 +332,32 @@ impl VideoFrameLayout {
                     stride: width,
                 },
             ],
+            // 10-bit 4:2:0 planar：每个采样 2 字节。
+            VideoPixelFormat::YUV420P10 | VideoPixelFormat::YUV420P12 => vec![
+                ColorPlaneLayout {
+                    offset: 0,
+                    stride: width * 2,
+                },
+                ColorPlaneLayout {
+                    offset: width * height * 2,
+                    stride: chroma_width * 2,
+                },
+                ColorPlaneLayout {
+                    offset: (width * height + chroma_width * chroma_height) * 2,
+                    stride: chroma_width * 2,
+                },
+            ],
+            // 10-bit 4:2:0 semi-planar：Y + 交错 UV。
+            VideoPixelFormat::P010LE => vec![
+                ColorPlaneLayout {
+                    offset: 0,
+                    stride: width * 2,
+                },
+                ColorPlaneLayout {
+                    offset: width * height * 2,
+                    stride: chroma_width * 4,
+                },
+            ],
             _ => {
                 // 其余格式的 stride 规则各不相同，先不给它们编布局 ——
                 // 「猜一个错的 stride」比「没有布局」糟得多。
@@ -358,14 +397,17 @@ impl VideoFrameLayout {
     pub fn plane_rows(&self, index: usize) -> usize {
         let height = self.coded_size.height as usize;
         match self.format {
-            VideoPixelFormat::I420 | VideoPixelFormat::YV12 => {
+            VideoPixelFormat::I420
+            | VideoPixelFormat::YV12
+            | VideoPixelFormat::YUV420P10
+            | VideoPixelFormat::YUV420P12 => {
                 if index == 0 {
                     height
                 } else {
                     height.div_ceil(2)
                 }
             }
-            VideoPixelFormat::NV12 | VideoPixelFormat::NV21 => {
+            VideoPixelFormat::NV12 | VideoPixelFormat::NV21 | VideoPixelFormat::P010LE => {
                 if index == 0 {
                     height
                 } else {

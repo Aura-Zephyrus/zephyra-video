@@ -10,6 +10,272 @@
 //! x86 上 SSE4 源文件用 `-msse4.2`（MSVC 默认即可）、AVX2 源文件单独编一份
 //! 并加 `/arch:AVX2`（gcc 用 `-mavx2`）。
 
+// ---- 动态/静态双路径 ----
+//
+// `dynamic` feature 打开时，把 vendored C 源码编成共享库（.dll/.so/.dylib），
+// 并通过 `cargo:rustc-link-lib=dylib=<name>` 让 Rust 的 `extern "C"` 在链接期
+// 指向它 —— 6 个 codec 模块的源码一行都不用改。共享库直接生成到 exe 所在目录。
+
+// 静态模式下这些表只作为参数传进 finish_codec 后被忽略，标 allow 避免告警。
+#[allow(dead_code)]
+const UAVS3D_EXPORTS: &[&str] = &[
+    "uavs3d_create",
+    "uavs3d_delete",
+    "uavs3d_reset",
+    "uavs3d_decode",
+    "uavs3d_flush",
+];
+#[allow(dead_code)]
+const DAV1D_EXPORTS: &[&str] = &["z_dav1d_open", "z_dav1d_close", "z_dav1d_decode"];
+#[allow(dead_code)]
+const VPX_EXPORTS: &[&str] = &["z_vpx8_open", "z_vpx9_open", "z_vpx_close", "z_vpx_decode"];
+#[allow(dead_code)]
+const HEVC_EXPORTS: &[&str] = &[
+    "z_hevc_open",
+    "z_hevc_close",
+    "z_hevc_reset",
+    "z_hevc_decode",
+];
+#[allow(dead_code)]
+const EVC_EXPORTS: &[&str] = &["z_evc_open", "z_evc_close", "z_evc_decode"];
+#[allow(dead_code)]
+const H264_EXPORTS: &[&str] = &["z_h264_open", "z_h264_close", "z_h264_decode"];
+#[allow(dead_code)]
+const VVC_EXPORTS: &[&str] = &["z_vvc_open", "z_vvc_close", "z_vvc_decode"];
+#[allow(dead_code)]
+const THEORA_EXPORTS: &[&str] = &["z_theora_open", "z_theora_close", "z_theora_decode"];
+#[allow(dead_code)]
+const MJPEG_EXPORTS: &[&str] = &["z_mjpeg_open", "z_mjpeg_close", "z_mjpeg_decode"];
+
+/// CLI 通过 ZEPHYRA_LINK_MODE 选模式；显式 feature 也可打开。
+#[allow(dead_code)]
+fn dynamic_mode() -> bool {
+    cfg!(feature = "dynamic")
+        || std::env::var("ZEPHYRA_LINK_MODE")
+            .map(|v| v == "dynamic")
+            .unwrap_or(false)
+}
+
+/// 结束一个 codec 的构建。静态模式维持原样；动态模式输出共享库。
+#[allow(dead_code)]
+#[cfg(any(
+    feature = "uavs3d",
+    feature = "av1",
+    feature = "vp9",
+    feature = "vp8",
+    feature = "hevc",
+    feature = "evc",
+    feature = "h264",
+    feature = "vvc",
+    feature = "theora",
+    feature = "mjpeg"
+))]
+#[cfg(any(
+    feature = "uavs3d",
+    feature = "av1",
+    feature = "vp9",
+    feature = "vp8",
+    feature = "hevc",
+    feature = "evc",
+    feature = "h264",
+    feature = "vvc",
+    feature = "theora",
+    feature = "mjpeg"
+))]
+fn finish_codec(build: &mut cc::Build, name: &str, exports: &[&str]) {
+    if dynamic_mode() {
+        build.pic(true);
+        let compiler = build.get_compiler().path().to_path_buf();
+        let objects = build.compile_intermediates();
+        // 先打成静态归档，再按常规归档语义链进共享库：只有被导出函数引用到的
+        // object 才会被拉入，未引用的内部符号随 object 一起被丢掉。
+        let archive = build.create_archive(&format!("{name}_static"), &objects);
+        dynamic::link_shared(name, std::slice::from_ref(&archive), exports, &compiler);
+    } else {
+        let _ = exports;
+        build.compile(name);
+    }
+}
+
+/// 把 uavs3d 的 base + AVX2 两组 object 合成一个共享库。
+#[cfg(feature = "uavs3d")]
+fn finish_uavs3d(base: &mut cc::Build, avx2: Option<&mut cc::Build>) {
+    if dynamic_mode() {
+        base.pic(true);
+        let compiler = base.get_compiler().path().to_path_buf();
+        let mut objects = base.compile_intermediates();
+        if let Some(avx2) = avx2 {
+            avx2.pic(true);
+            objects.extend(avx2.compile_intermediates());
+        }
+        let archive = base.create_archive("uavs3d_static", &objects);
+        dynamic::link_shared(
+            "uavs3d",
+            std::slice::from_ref(&archive),
+            UAVS3D_EXPORTS,
+            &compiler,
+        );
+    } else {
+        base.compile("uavs3d");
+        if let Some(avx2) = avx2 {
+            avx2.compile("uavs3d_avx2");
+        }
+    }
+}
+
+#[cfg(any(
+    feature = "uavs3d",
+    feature = "av1",
+    feature = "vp9",
+    feature = "vp8",
+    feature = "hevc",
+    feature = "evc",
+    feature = "h264",
+    feature = "vvc",
+    feature = "theora",
+    feature = "mjpeg"
+))]
+mod dynamic {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// OUT_DIR = <target>/<triple>/<profile>/build/<crate>-<hash>/out
+    /// 往上三级就是 exe 所在目录。
+    fn profile_dir() -> PathBuf {
+        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+        out.ancestors()
+            .nth(3)
+            .expect("OUT_DIR/../../..")
+            .to_path_buf()
+    }
+
+    pub fn link_shared(name: &str, objects: &[PathBuf], exports: &[&str], compiler: &Path) {
+        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+        let profile = profile_dir();
+        let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+        // Rust 侧用 `#[link(kind = "dylib")]` 形状链接；导入库/共享库目录都给。
+        println!("cargo:rustc-link-search=native={}", profile.display());
+        println!("cargo:rustc-link-search=native={}", out.display());
+        println!("cargo:rustc-link-lib=dylib={name}");
+
+        let mut cmd = if os == "windows" && env == "msvc" {
+            let def = out.join(format!("{name}.def"));
+            let body = exports
+                .iter()
+                .map(|e| format!("  {e}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            std::fs::write(&def, format!("LIBRARY {name}\nEXPORTS\n{body}\n")).expect("write .def");
+            // link.exe 不在 build script 的 PATH 上，但和 cl.exe 在同一个 VC bin 目录。
+            let linker = compiler
+                .parent()
+                .expect("cl.exe 应有父目录")
+                .join("link.exe");
+            let mut c = Command::new(linker);
+            c.arg("/DLL")
+                .arg("/MACHINE:X64")
+                .arg("/NOLOGO")
+                .arg(format!(
+                    "/OUT:{}",
+                    profile.join(format!("{name}.dll")).display()
+                ))
+                .arg(format!(
+                    "/IMPLIB:{}",
+                    out.join(format!("{name}.lib")).display()
+                ))
+                .arg(format!("/DEF:{}", def.display()));
+            for lib in msvc_lib_paths(compiler) {
+                c.arg(lib);
+            }
+            c
+        } else if os == "windows" {
+            // MinGW：--export-all-symbols 暴露全部全局符号。
+            let mut c = Command::new(compiler);
+            c.arg("-shared")
+                .arg("-Wl,--export-all-symbols")
+                .arg("-o")
+                .arg(profile.join(format!("{name}.dll")));
+            c
+        } else if os == "macos" {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+            let mut c = Command::new(compiler);
+            c.arg("-dynamiclib")
+                .arg("-o")
+                .arg(profile.join(format!("lib{name}.dylib")));
+            c
+        } else {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+            let mut c = Command::new(compiler);
+            c.arg("-shared")
+                .arg("-o")
+                .arg(profile.join(format!("lib{name}.so")));
+            c.arg("-lm").arg("-lpthread");
+            c
+        };
+
+        // 记录实际产物文件名，供 app 启动时做缺库自检（框架读这个文件）。
+        let lib_name = if os == "windows" {
+            format!("{name}.dll")
+        } else if os == "macos" {
+            format!("lib{name}.dylib")
+        } else {
+            format!("lib{name}.so")
+        };
+        let manifest = profile.join("zephyra_dynamic_libs.txt");
+        let mut existing = std::fs::read_to_string(&manifest).unwrap_or_default();
+        if !existing.lines().any(|l| l == lib_name) {
+            if !existing.is_empty() && !existing.ends_with('\n') {
+                existing.push('\n');
+            }
+            existing.push_str(&lib_name);
+            existing.push('\n');
+            let _ = std::fs::write(&manifest, existing);
+        }
+
+        for obj in objects {
+            cmd.arg(obj);
+        }
+        let output = cmd
+            .output()
+            .unwrap_or_else(|e| panic!("link shared {name}: {e}"));
+        assert!(
+            output.status.success(),
+            "link shared {name} failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// build script 的 PATH/LIB 没继承 vcvars，需自己推导出 SDK 库目录。
+    fn msvc_lib_paths(compiler: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        // cl.exe: ...\VC\Tools\MSVC\<ver>\bin\Hostx64\x64\cl.exe
+        // ancestors: 0=cl.exe, 1=x64, 2=Hostx64, 3=bin, 4=<MSVC 版本目录>
+        if let Some(msvc_ver) = compiler.ancestors().nth(4) {
+            out.push(format!(
+                "/LIBPATH:{}",
+                msvc_ver.join("lib").join("x64").display()
+            ));
+        }
+        let sdk_root = PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10\Lib");
+        if let Ok(rd) = std::fs::read_dir(&sdk_root) {
+            let mut versions: Vec<PathBuf> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            versions.sort();
+            if let Some(v) = versions.last() {
+                out.push(format!("/LIBPATH:{}", v.join("um").join("x64").display()));
+                out.push(format!("/LIBPATH:{}", v.join("ucrt").join("x64").display()));
+            }
+        }
+        out
+    }
+}
+
 fn main() {
     #[cfg(feature = "uavs3d")]
     build_uavs3d();
@@ -19,6 +285,16 @@ fn main() {
     build_vp9();
     #[cfg(feature = "hevc")]
     build_hevc();
+    #[cfg(feature = "evc")]
+    build_evc();
+    #[cfg(feature = "h264")]
+    build_h264();
+    #[cfg(feature = "vvc")]
+    build_vvc();
+    #[cfg(feature = "theora")]
+    build_theora();
+    #[cfg(feature = "mjpeg")]
+    build_mjpeg();
 }
 
 #[cfg(feature = "uavs3d")]
@@ -76,12 +352,11 @@ fn build_uavs3d() {
         } else {
             avx2.flag_if_supported("-mavx2");
         }
-        base.compile("uavs3d");
-        avx2.compile("uavs3d_avx2");
+        finish_uavs3d(&mut base, Some(&mut avx2));
     } else {
         // ARM / 其它平台：CMakeLists 用的是 .S 汇编，这里不编，
         // 退到 decore 的纯 C 路径（uavs3d 仍然能解码，只是慢）。
-        base.compile("uavs3d");
+        finish_uavs3d(&mut base, None);
     }
 
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -99,7 +374,12 @@ fn build_uavs3d() {
     feature = "av1",
     feature = "vp9",
     feature = "vp8",
-    feature = "hevc"
+    feature = "hevc",
+    feature = "evc",
+    feature = "h264",
+    feature = "vvc",
+    feature = "theora",
+    feature = "mjpeg"
 ))]
 fn msvc_system_includes() -> Vec<std::path::PathBuf> {
     use std::path::PathBuf;
@@ -137,7 +417,12 @@ fn msvc_system_includes() -> Vec<std::path::PathBuf> {
     feature = "av1",
     feature = "vp9",
     feature = "vp8",
-    feature = "hevc"
+    feature = "hevc",
+    feature = "evc",
+    feature = "h264",
+    feature = "vvc",
+    feature = "theora",
+    feature = "mjpeg"
 ))]
 fn latest_subdir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     std::fs::read_dir(dir)
@@ -283,7 +568,7 @@ fn build_av1() {
     }
 
     build.file(root.parent().unwrap().join("dav1d_shim.c"));
-    build.compile("z_dav1d");
+    finish_codec(&mut build, "z_dav1d", DAV1D_EXPORTS);
 }
 
 #[cfg(any(feature = "vp9", feature = "vp8"))]
@@ -350,7 +635,7 @@ fn build_vp9() {
         build.file(root.join(relative));
     }
     build.file(root.parent().unwrap().join("libvpx_shim.c"));
-    build.compile("z_vpx");
+    finish_codec(&mut build, "z_vpx", VPX_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
@@ -427,9 +712,431 @@ fn build_hevc() {
         build.file(root.join("extra/win32cond.c"));
     }
     build.file(root.parent().unwrap().join("hevc_shim.cpp"));
-    build.compile("z_hevc");
+    finish_codec(&mut build, "z_hevc", HEVC_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
     }
+}
+
+/// EVC (MPEG-5) decoding via vendored xevd (BSD-3-Clause, Samsung).
+///
+/// Only `src_base/` is compiled. Without `X86`/`ARM` defines xevd_port.h
+/// leaves `X86_SSE`/`ARM_NEON` undefined, so the pure-C fallback is used and
+/// no SIMD sources / assembler are needed.
+#[cfg(feature = "evc")]
+fn build_evc() {
+    use std::path::{Path, PathBuf};
+
+    let root = Path::new("native/xevd");
+    println!("cargo:rerun-if-changed=native/xevd");
+    println!("cargo:rerun-if-changed=native/xevd_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    let mut build = cc::Build::new();
+    build
+        .include(root.join("inc"))
+        .include(root.join("src_base"))
+        .define("ANY", None)
+        // xevd uses assert() for malformed-bitstream checks; without NDEBUG a
+        // bad stream aborts the whole process instead of returning an error.
+        .define("NDEBUG", None)
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+    // xevd_tp.c gates its Win32 thread pool on `WIN32`/`WIN64` (not `_WIN32`).
+    if os == "windows" {
+        build.define("WIN32", None);
+    } else {
+        build.define("LINUX", None);
+    }
+
+    // Every base .c under src_base (excluding the sse/avx/neon subdirs).
+    let base = root.join("src_base");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&base)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", base.display()))
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("c"))
+        .collect();
+    files.sort();
+    for file in files {
+        build.file(file);
+    }
+
+    build.file(root.parent().unwrap().join("xevd_shim.c"));
+    finish_codec(&mut build, "z_evc", EVC_EXPORTS);
+
+    if os != "windows" {
+        println!("cargo:rustc-link-lib=m");
+        println!("cargo:rustc-link-lib=pthread");
+    }
+}
+
+/// H.264 software decoding via vendored OpenH264 (BSD-2-Clause, Cisco).
+///
+/// Only the decoder half is compiled (common + decoder core + `plus`), with
+/// `X86_ASM` undefined so the generic C++ fallbacks are used — no nasm/yasm.
+#[cfg(feature = "h264")]
+fn build_h264() {
+    use std::path::Path;
+
+    let root = Path::new("native/openh264");
+    println!("cargo:rerun-if-changed=native/openh264");
+    println!("cargo:rerun-if-changed=native/openh264_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    // OpenH264's build script generates this from version_gen.h.template.
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(
+        out.join("version_gen.h"),
+        "#ifndef VERSION_GEN_H\n#define VERSION_GEN_H\n#define VERSION_NUMBER \"2.5.0\"\n#endif\n",
+    )
+    .expect("write OpenH264 version_gen.h");
+
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .include(out.clone())
+        .include(root.join("codec/api/wels"))
+        .include(root.join("codec/common/inc"))
+        .include(root.join("codec/decoder/core/inc"))
+        .include(root.join("codec/decoder/plus/inc"))
+        .define("NDEBUG", None)
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.flag("/std:c++11");
+    } else {
+        build.flag_if_supported("-std=c++11");
+    }
+
+    // Exact source lists from codec/{common,decoder}/targets.mk (Makefile).
+    const COMMON: &[&str] = &[
+        "common_tables.cpp",
+        "copy_mb.cpp",
+        "cpu.cpp",
+        "crt_util_safe_x.cpp",
+        "deblocking_common.cpp",
+        "expand_pic.cpp",
+        "intra_pred_common.cpp",
+        "mc.cpp",
+        "memory_align.cpp",
+        "sad_common.cpp",
+        "utils.cpp",
+        "welsCodecTrace.cpp",
+        "WelsTaskThread.cpp",
+        "WelsThread.cpp",
+        "WelsThreadLib.cpp",
+        "WelsThreadPool.cpp",
+    ];
+    const DECODER: &[&str] = &[
+        "au_parser.cpp",
+        "bit_stream.cpp",
+        "cabac_decoder.cpp",
+        "deblocking.cpp",
+        "decode_mb_aux.cpp",
+        "decode_slice.cpp",
+        "decoder.cpp",
+        "decoder_core.cpp",
+        "decoder_data_tables.cpp",
+        "error_concealment.cpp",
+        "fmo.cpp",
+        "get_intra_predictor.cpp",
+        "manage_dec_ref.cpp",
+        "memmgr_nal_unit.cpp",
+        "mv_pred.cpp",
+        "parse_mb_syn_cabac.cpp",
+        "parse_mb_syn_cavlc.cpp",
+        "pic_queue.cpp",
+        "rec_mb.cpp",
+        "wels_decoder_thread.cpp",
+    ];
+    for source in COMMON {
+        build.file(root.join("codec/common/src").join(source));
+    }
+    for source in DECODER {
+        build.file(root.join("codec/decoder/core/src").join(source));
+    }
+    build.file(root.join("codec/decoder/plus/src/welsDecoderExt.cpp"));
+    build.file(root.parent().unwrap().join("openh264_shim.c"));
+    finish_codec(&mut build, "z_h264", H264_EXPORTS);
+
+    if os != "windows" {
+        println!("cargo:rustc-link-lib=pthread");
+        println!("cargo:rustc-link-lib=dl");
+    }
+}
+
+/// VVC / H.266 decoding via vendored vvdec (Clear BSD, Fraunhofer HHI).
+///
+/// X86/ARM SIMD sources are skipped (no nasm and to keep the build portable);
+/// vvdec's scalar fallbacks are used. simde is still needed by BitStream.h.
+#[cfg(feature = "vvc")]
+fn build_vvc() {
+    use std::path::{Path, PathBuf};
+
+    let root = Path::new("native/vvdec");
+    println!("cargo:rerun-if-changed=native/vvdec");
+    println!("cargo:rerun-if-changed=native/vvdec_shim.cpp");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    // CMake configures these two headers into ${CMAKE_BINARY_DIR}.
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let generated = out.join("vvdec");
+    std::fs::create_dir_all(&generated).expect("create vvdec generated dir");
+    let header_in =
+        std::fs::read_to_string(root.join("include/vvdec/vvdec.h.in")).expect("read vvdec.h.in");
+    std::fs::write(
+        generated.join("vvdec.h"),
+        header_in.replace("@VVDEC_USE_UNSTABLE_API@", "0"),
+    )
+    .expect("write generated vvdec.h");
+    std::fs::write(
+        generated.join("version.h"),
+        "#ifndef VVDEC_VERSION\n#define VVDEC_VERSION \"3.3.0\"\n#define VVDEC_VERSION_MAJOR 3\n#define VVDEC_VERSION_MINOR 3\n#define VVDEC_VERSION_PATCH 0\n#endif\n",
+    )
+    .expect("write generated vvdec version.h");
+
+    let lib = root.join("source/Lib");
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .include(out.clone())
+        .include(root.join("include"))
+        // vvdecimpl.h includes "DecoderLib/DecLib.h" etc. relative to source/Lib.
+        .include(lib.clone())
+        .include(lib.join("vvdec"))
+        .include(lib.join("CommonLib"))
+        .include(lib.join("CommonLib/x86"))
+        .include(lib.join("DecoderLib"))
+        .include(lib.join("Utilities"))
+        .include(lib.join("libmd5"))
+        .include(lib.join("FilmGrain"))
+        .include(root.join("thirdparty"))
+        .define("VVDEC_SOURCE", None)
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+    } else {
+        build.flag_if_supported("-std=c++17");
+    }
+
+    // Mirrors source/Lib/vvdec/CMakeLists.txt with SIMD disabled.
+    for dir in ["vvdec", "CommonLib", "Utilities", "DecoderLib", "libmd5"] {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(lib.join(dir))
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir))
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("cpp"))
+            .collect();
+        files.sort();
+        for file in files {
+            build.file(file);
+        }
+    }
+    for source in ["FilmGrain.cpp", "FilmGrainImpl.cpp"] {
+        build.file(lib.join("FilmGrain").join(source));
+    }
+    build.file(root.parent().unwrap().join("vvdec_shim.cpp"));
+    finish_codec(&mut build, "z_vvc", VVC_EXPORTS);
+
+    if os != "windows" {
+        println!("cargo:rustc-link-lib=pthread");
+    }
+}
+
+/// Theora decoding via vendored libtheora (BSD-3-Clause, Xiph.org).
+///
+/// Only the decoder half (`decoder_sources` from lib/Makefile.am) is compiled;
+/// SIMD sources are skipped so no assembler is needed. The matching libogg
+/// headers (also BSD-3) are vendored alongside — libtheora only uses the
+/// `ogg_packet` type, no libogg symbols.
+#[cfg(feature = "theora")]
+fn build_theora() {
+    use std::path::Path;
+
+    let root = Path::new("native/theora");
+    println!("cargo:rerun-if-changed=native/theora");
+    println!("cargo:rerun-if-changed=native/theora_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    let mut build = cc::Build::new();
+    build
+        .include(root.join("include"))
+        .include(root.join("lib"))
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+
+    // lib/Makefile.am: decoder_sources (without the optional arch SIMD).
+    const SOURCES: &[&str] = &[
+        "apiwrapper.c",
+        "bitpack.c",
+        "decapiwrapper.c",
+        "decinfo.c",
+        "decode.c",
+        "dequant.c",
+        "fragment.c",
+        "huffdec.c",
+        "idct.c",
+        "info.c",
+        "internal.c",
+        "quant.c",
+        "state.c",
+    ];
+    for source in SOURCES {
+        build.file(root.join("lib").join(source));
+    }
+    build.file(root.parent().unwrap().join("theora_shim.c"));
+    finish_codec(&mut build, "z_theora", THEORA_EXPORTS);
+
+    if os != "windows" {
+        println!("cargo:rustc-link-lib=m");
+    }
+}
+
+/// MJPEG decoding via vendored libjpeg-turbo 2.1.5.1 (BSD-3 / IJG license).
+///
+/// SIMD is disabled (`WITH_SIMD 0`), so no nasm/yasm is needed. `jconfig.h`
+/// and `jversion.h` are generated into OUT_DIR from the upstream templates.
+#[cfg(feature = "mjpeg")]
+fn build_mjpeg() {
+    use std::path::Path;
+
+    let root = Path::new("native/libjpeg");
+    println!("cargo:rerun-if-changed=native/libjpeg");
+    println!("cargo:rerun-if-changed=native/mjpeg_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(
+        out.join("jconfig.h"),
+        "#define JPEG_LIB_VERSION 62\n\
+         #define LIBJPEG_TURBO_VERSION \"2.1.5.1\"\n\
+         #define LIBJPEG_TURBO_VERSION_NUMBER 21051\n\
+         #define MEM_SRCDST_SUPPORTED 1\n\
+         #define WITH_SIMD 0\n\
+         #define BITS_IN_JSAMPLE 8\n",
+    )
+    .expect("write jconfig.h");
+    let version = std::fs::read_to_string(root.join("jversion.h.in")).expect("read jversion.h.in");
+    std::fs::write(
+        out.join("jversion.h"),
+        version.replace("@COPYRIGHT_YEAR@", "2026"),
+    )
+    .expect("write jversion.h");
+
+    let mut build = cc::Build::new();
+    build
+        .include(out.clone())
+        .include(root)
+        // jconfigint.h.in is configured by CMake; supply a minimal one.
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+
+    // jconfigint.h is generated by CMake from jconfigint.h.in. The sources
+    // use SIZEOF_SIZE_T in #if, so it must be a literal, and INLINE for the
+    // compiler in use.
+    let pointer_width =
+        std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap_or_else(|_| "64".to_string());
+    let size_of_size_t = pointer_width.parse::<usize>().unwrap_or(64) / 8;
+    let inline = if msvc { "__inline" } else { "inline" };
+    std::fs::write(
+        out.join("jconfigint.h"),
+        format!(
+            "#ifndef JCONFIGINT_H\n#define JCONFIGINT_H\n\
+             #define BUILD \"\"\n\
+             #define INLINE {inline}\n\
+             #define THREAD_LOCAL\n\
+             #define PACKAGE_NAME \"libjpeg-turbo\"\n\
+             #define VERSION \"2.1.5.1\"\n\
+             #define SIZEOF_SIZE_T {size_of_size_t}\n\
+             #define FALLTHROUGH\n\
+             #endif\n"
+        ),
+    )
+    .expect("write jconfigint.h");
+
+    // CMakeLists.txt JPEG_SOURCES (2.1.x), SIMD files skipped.
+    const SOURCES: &[&str] = &[
+        "jcapimin.c",
+        "jcapistd.c",
+        "jccoefct.c",
+        "jccolor.c",
+        "jcdctmgr.c",
+        "jchuff.c",
+        "jcicc.c",
+        "jcinit.c",
+        "jcmainct.c",
+        "jcmarker.c",
+        "jcmaster.c",
+        "jcomapi.c",
+        "jcparam.c",
+        "jcphuff.c",
+        "jcprepct.c",
+        "jcsample.c",
+        "jctrans.c",
+        "jdapimin.c",
+        "jdapistd.c",
+        "jdatadst.c",
+        "jdatasrc.c",
+        "jdcoefct.c",
+        "jdcolor.c",
+        "jddctmgr.c",
+        "jdhuff.c",
+        "jdicc.c",
+        "jdinput.c",
+        "jdmainct.c",
+        "jdmarker.c",
+        "jdmaster.c",
+        "jdmerge.c",
+        "jdphuff.c",
+        "jdpostct.c",
+        "jdsample.c",
+        "jdtrans.c",
+        "jerror.c",
+        "jfdctflt.c",
+        "jfdctfst.c",
+        "jfdctint.c",
+        "jidctflt.c",
+        "jidctfst.c",
+        "jidctint.c",
+        "jidctred.c",
+        "jquant1.c",
+        "jquant2.c",
+        "jutils.c",
+        "jmemmgr.c",
+        "jmemnobs.c",
+        "jsimd_none.c",
+    ];
+    for source in SOURCES {
+        build.file(root.join(source));
+    }
+    build.file(root.parent().unwrap().join("mjpeg_shim.c"));
+    finish_codec(&mut build, "z_mjpeg", MJPEG_EXPORTS);
 }

@@ -50,6 +50,11 @@
 //! | `vp9` | `cc`（构建期） | vendored libvpx + FFI（全平台，输出 8bit I420） |
 //! | `vp8` | `cc`（构建期） | 同一份 libvpx，换 VP8 codec iface（输出 8bit I420） |
 //! | `hevc` | `cc`（构建期） | vendored libde265（LGPL-3.0+，输出 8bit I420） |
+//! | `evc` | `cc`（构建期） | vendored xevd（BSD-3-Clause，输出 8bit I420） |
+//! | `h264` | `cc`（构建期） | vendored OpenH264（BSD-2-Clause，输出 8bit I420） |
+//! | `vvc` | `cc`（构建期） | vendored vvdec（Clear BSD，输出 8bit I420） |
+//! | `theora` | `cc`（构建期） | vendored libtheora + libogg headers（BSD-3，输出 8bit I420） |
+//! | `mjpeg` | `cc`（构建期） | vendored libjpeg-turbo（BSD-3/IJG，输出 8bit I420） |
 //!
 //! [`dxva2`] 模块**默认就存在** —— 里面的 DPB 与图片参数是纯逻辑，
 //! 没有 GPU 的机器也要能单测它们。`dxva2` feature 只多出
@@ -75,14 +80,25 @@ pub mod codec;
 pub mod config;
 pub mod decoder;
 pub mod dxva2;
+#[cfg(feature = "evc")]
+#[allow(unsafe_code)]
+pub mod evc;
+#[allow(unsafe_code)]
+pub mod ffi_util;
 pub mod frame;
 pub mod geometry;
 pub mod h264;
 #[cfg(feature = "hevc")]
 #[allow(unsafe_code)]
 pub mod hevc;
+#[cfg(feature = "mjpeg")]
+#[allow(unsafe_code)]
+pub mod mjpeg;
 pub mod selector;
 pub mod status;
+#[cfg(feature = "theora")]
+#[allow(unsafe_code)]
+pub mod theora;
 pub mod uavs3d;
 #[cfg(feature = "vp8")]
 #[allow(unsafe_code)]
@@ -90,6 +106,9 @@ pub mod vp8;
 #[cfg(feature = "vp9")]
 #[allow(unsafe_code)]
 pub mod vp9;
+#[cfg(feature = "vvc")]
+#[allow(unsafe_code)]
+pub mod vvc;
 
 #[cfg(feature = "av1")]
 pub use av1::Dav1dDecoder;
@@ -100,18 +119,28 @@ pub use config::{
     VideoAspectRatio, VideoColorSpace, VideoDecoderConfig, VideoTransformation,
 };
 pub use decoder::{VideoDecoder, VideoDecoderType};
+#[cfg(feature = "evc")]
+pub use evc::XevdDecoder;
 pub use frame::{
     ColorPlaneLayout, NativeResourceOwner, VideoFrame, VideoFrameLayout, VideoPixelFormat,
     VideoPlane,
 };
 pub use geometry::{Rect, Size};
+#[cfg(feature = "h264")]
+pub use h264::OpenH264Decoder;
 #[cfg(feature = "hevc")]
 pub use hevc::HevcDecoder;
+#[cfg(feature = "mjpeg")]
+pub use mjpeg::MjpegDecoder;
 pub use selector::{select_decoder_priority, DecoderPriority, DecoderSelector};
 pub use status::{ok, DecoderStatus, DecoderStatusCode};
+#[cfg(feature = "theora")]
+pub use theora::TheoraDecoder;
 #[cfg(feature = "uavs3d")]
 pub use uavs3d::Uavs3dDecoder;
 #[cfg(feature = "vp8")]
 pub use vp8::Vpx8Decoder;
 #[cfg(feature = "vp9")]
 pub use vp9::Vpx9Decoder;
+#[cfg(feature = "vvc")]
+pub use vvc::VvdecDecoder;
