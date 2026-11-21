@@ -46,18 +46,24 @@ EVC / VVC，全部是 vendored C/C++ 库 + 薄 shim，默认构建一行 C 都�
 | `vvc` | `cc`（构建期） | vendored vvdec（Clear BSD-3-Clause，输出 8bit I420） |
 | `theora` | `cc`（构建期） | vendored libtheora + libogg headers（BSD-3，输出 8bit I420） |
 | `mjpeg` | `cc`（构建期） | vendored libjpeg-turbo（BSD-3/IJG，输出 8bit I420） |
-| 无（默认） | 无 | 音频：纯 Rust PCM 解码器（S16/F32/U8 → planar） |
 | `mp3` | `cc`（构建期） | 音频：vendored minimp3（CC0，输出 planar S16） |
 | `opus` | `cc`（构建期） | 音频：vendored libopus（BSD-3，输出 planar S16） |
 | `vorbis` | `cc`（构建期） | 音频：vendored libvorbis（BSD-3，输出 planar F32） |
 | `flac` | `cc`（构建期） | 音频：vendored libFLAC（BSD-3，输出 planar S32） |
+| `dynamic` | `libloading`（运行期） | vendored C 库编成共享库 + 运行时加载；缺库记入 `DynamicLoadReport`（详见下文） |
 | `video` | 上方全部视频 feature | 一键开启所有软件视频解码器（不含 `dxva2`） |
-| `audio` | 上方全部音频 feature | 一键开启所有音频解码器（PCM 本就默认可用） |
+| `audio` | 上方全部音频 feature | 一键开启所有音频解码器（PCM 解码器默认可用，无 feature） |
 | `all-codecs` | `video` + `audio` | 一键开启所有编解码器（不含 `dynamic`） |
 
 所有单独 feature 仍可任意组合，例如 `--features h264,mp3`。`video` 刻意不含
 `dxva2`（Windows 专属硬件后端）；`all-codecs` 刻意不含 `dynamic`（链接模式），
 两者都需要时显式加上。
+
+新增 codec 的接线只需要两处：仓库根 `codecs.rs` 的一行声明，和 `Cargo.toml`
+的一个 feature。Rust 侧的模块 / re-export / `load_all()` 与 build.rs 的导出
+符号表 / 构建分发都从那张表派生；`tests/unit/codec_tests.rs` 的一致性测试会
+把「表里有、Cargo.toml 没有」变成硬失败。若引入一套**新的** vendored C 库，
+还需在 `build.rs` 加一个 `build_*` 函数（C 源码列表属于那套库，无法从声明派生）。
 
 音频侧与视频侧对称：`AudioCodec` / `AudioDecoderConfig` / `AudioBuffer` / `AudioFrame` / `AudioDecoder`。
 10bit（YUV420P10）目前由 AV1 / VP9 / HEVC / EVC / VVC 五个后端支持；H.264 与 AVS3 仍是 8bit。
@@ -130,6 +136,15 @@ cargo test --features all-codecs                         # 全部编解码器
 cargo test --features dynamic,h264,evc,vvc,theora,mjpeg   # 共享库链接模式
 cargo test --all-features
 ```
+
+本机实测（2026-11-21，Windows x64 / MSVC 14.51，14 个 codec feature）：
+
+| 命令 | 结果 |
+|---|---|
+| `cargo test`（默认，零 feature） | 184 passed / 0 failed（183 单测 + 1 集成） |
+| `cargo test --all-features` | 268 passed / 0 failed（230 单测 + 5 音频回放 + 12 视频回放 + 21 真实码流） |
+| `cargo clippy --all-targets --all-features -- -D warnings` | 0 warning |
+| `cargo tree -p zephyra-video --depth 1` | 只有 crate 自身一行 —— 默认构建零外部依赖 |
 
 ## 许可证
 

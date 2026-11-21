@@ -88,10 +88,17 @@ macro_rules! check_lib {
 }
 
 /// 动态构建：把库加载失败转成 `DecoderStatus`，由解码器 `initialize()` 返回。
+///
+/// 必须先触发本模块的加载：`api()` 直到第一次真正调用解码函数才执行，而
+/// `check_lib!` 在 `initialize()` 开头运行 —— 若不主动加载，`library_status`
+/// 此刻还是空的，缺库 / 缺符号检查形同虚设，错误会被 `Default::default()`
+/// 静默吞成"成功但无帧"。
 #[cfg(feature = "dynamic")]
 #[macro_export]
 macro_rules! check_lib {
-    ($lib:literal) => {
+    ($lib:literal) => {{
+        // 由 codec_api! 在当前模块生成；幂等（OnceLock），多次调用无副作用。
+        ensure_loaded();
         $crate::dynamic_loader::library_status($lib)
             .and_then(|r| r.err())
             .map(|e| {
@@ -100,5 +107,5 @@ macro_rules! check_lib {
                     format!("dynamic library '{}' unavailable: {}", $lib, e),
                 )
             })
-    };
+    }};
 }

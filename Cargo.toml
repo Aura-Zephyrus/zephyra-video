@@ -64,8 +64,12 @@ cc = { version = "1.6", optional = true }
 [dependencies]
 # 仅 dynamic feature 打开时用于运行时加载共享库。
 libloading = { version = "0.8", optional = true }
-# 核心零依赖：视频解码的词汇（配置 / 缓冲 / 帧 / 选择器 / 位流解析）
-# 不需要任何外部 crate。
+# 唯一的非可选依赖：bytes 是纯 Rust、零平台 API 的 Arc-backed 容器。
+# 用它给 CPU 平面提供零拷贝 Bytes 出口（Bytes::from_owner(Arc)），
+# 下游可直接把平面交给同样以 Bytes 存储的契约层，不再 memcpy 到 Arc<[u8]>。
+bytes = "1"
+# 核心零平台依赖：视频解码的词汇（配置 / 缓冲 / 帧 / 选择器 / 位流解析）
+# 不需要任何系统 API 或 unsafe（除局部开口）。
 
 [target.'cfg(windows)'.dependencies]
 # `windows 0.62` —— 与仓库其余 Windows crate 同一版。两个大版本的 COM 类型

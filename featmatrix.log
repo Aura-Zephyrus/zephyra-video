@@ -1,0 +1,76 @@
+
+E:\zephyra-video>(echo ===FEATURE_uavs3d===   && cargo check --no-default-features --features uavs3d   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_uavs3d=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.77s
+
+E:\zephyra-video>(echo ===FEATURE_av1===   && cargo check --no-default-features --features av1   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_av1=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.39s
+
+E:\zephyra-video>(echo ===FEATURE_vp9===   && cargo check --no-default-features --features vp9   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_vp9=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.27s
+
+E:\zephyra-video>(echo ===FEATURE_vp8===   && cargo check --no-default-features --features vp8   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_vp8=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.64s
+
+E:\zephyra-video>(echo ===FEATURE_hevc===   && cargo check --no-default-features --features hevc   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_hevc=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.90s
+
+E:\zephyra-video>(echo ===FEATURE_evc===   && cargo check --no-default-features --features evc   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_evc=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.32s
+
+E:\zephyra-video>(echo ===FEATURE_h264===   && cargo check --no-default-features --features h264   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_h264=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.98s
+
+E:\zephyra-video>(echo ===FEATURE_vvc===   && cargo check --no-default-features --features vvc   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_vvc=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 07s
+
+E:\zephyra-video>(echo ===FEATURE_theora===   && cargo check --no-default-features --features theora   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_theora=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.92s
+
+E:\zephyra-video>(echo ===FEATURE_mjpeg===   && cargo check --no-default-features --features mjpeg   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_mjpeg=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.14s
+
+E:\zephyra-video>(echo ===FEATURE_mp3===   && cargo check --no-default-features --features mp3   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_mp3=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.83s
+
+E:\zephyra-video>(echo ===FEATURE_opus===   && cargo check --no-default-features --features opus   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_opus=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.56s
+
+E:\zephyra-video>(echo ===FEATURE_vorbis===   && cargo check --no-default-features --features vorbis   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_vorbis=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.39s
+
+E:\zephyra-video>(echo ===FEATURE_flac===   && cargo check --no-default-features --features flac   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_flac=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.15s
+
+E:\zephyra-video>(echo ===FEATURE_dynamic===   && cargo check --no-default-features --features dynamic   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_dynamic=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.07s
+
+E:\zephyra-video>(echo ===FEATURE_dxva2===   && cargo check --no-default-features --features dxva2   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_dxva2=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.51s
+
+E:\zephyra-video>(echo ===FEATURE_all-codecs===   && cargo check --no-default-features --features all-codecs   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_all-codecs=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 17s
+
+E:\zephyra-video>(echo ===FEATURE_video===   && cargo check --no-default-features --features video   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_video=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 08s
+
+E:\zephyra-video>(echo ===FEATURE_audio===   && cargo check --no-default-features --features audio   2>&1  | findstr /R /C:" "error /C:Finished /C:warning:  ) 
+===FEATURE_audio=== 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.51s

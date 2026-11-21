@@ -16,55 +16,31 @@
 // 并通过 `cargo:rustc-link-lib=dylib=<name>` 让 Rust 的 `extern "C"` 在链接期
 // 指向它 —— 6 个 codec 模块的源码一行都不用改。共享库直接生成到 exe 所在目录。
 
-// 静态模式下这些表只作为参数传进 finish_codec 后被忽略，标 allow 避免告警。
-#[allow(dead_code)]
-const UAVS3D_EXPORTS: &[&str] = &[
-    "uavs3d_create",
-    "uavs3d_delete",
-    "uavs3d_reset",
-    "uavs3d_decode",
-    "uavs3d_flush",
-];
-#[allow(dead_code)]
-const DAV1D_EXPORTS: &[&str] = &["z_dav1d_open", "z_dav1d_close", "z_dav1d_decode"];
-#[allow(dead_code)]
-const VPX_EXPORTS: &[&str] = &["z_vpx8_open", "z_vpx9_open", "z_vpx_close", "z_vpx_decode"];
-#[allow(dead_code)]
-const HEVC_EXPORTS: &[&str] = &[
-    "z_hevc_open",
-    "z_hevc_close",
-    "z_hevc_reset",
-    "z_hevc_decode",
-    "z_hevc_flush",
-];
-#[allow(dead_code)]
-const EVC_EXPORTS: &[&str] = &["z_evc_open", "z_evc_close", "z_evc_decode"];
-#[allow(dead_code)]
-const H264_EXPORTS: &[&str] = &[
-    "z_h264_open",
-    "z_h264_close",
-    "z_h264_decode",
-    "z_h264_flush",
-];
-#[allow(dead_code)]
-const VVC_EXPORTS: &[&str] = &["z_vvc_open", "z_vvc_close", "z_vvc_decode", "z_vvc_flush"];
-#[allow(dead_code)]
-const THEORA_EXPORTS: &[&str] = &[
-    "z_theora_open",
-    "z_theora_close",
-    "z_theora_decode",
-    "z_theora_flush",
-];
-#[allow(dead_code)]
-const MJPEG_EXPORTS: &[&str] = &["z_mjpeg_open", "z_mjpeg_close", "z_mjpeg_decode"];
-#[allow(dead_code)]
-const MP3_EXPORTS: &[&str] = &["z_mp3_open", "z_mp3_close", "z_mp3_decode"];
-#[allow(dead_code)]
-const OPUS_EXPORTS: &[&str] = &["z_opus_open", "z_opus_close", "z_opus_decode"];
-#[allow(dead_code)]
-const VORBIS_EXPORTS: &[&str] = &["z_vorbis_open", "z_vorbis_close", "z_vorbis_decode"];
-#[allow(dead_code)]
-const FLAC_EXPORTS: &[&str] = &["z_flac_open", "z_flac_close", "z_flac_decode"];
+// 构建侧的导出符号表、共享 helper 的启用条件与 main 分发全部由 codecs.rs 生成。
+// 新增 codec 时只改那张表 + Cargo.toml 的 feature（新 vendored 库另需一个 build_* 函数）。
+include!("codecs.rs");
+
+macro_rules! build_support_decl {
+    ($( $build:ident, [$($feature:literal),*], $lib:literal, $exports:ident, [$($export:literal),*]; )*) => {
+        $(
+            #[allow(dead_code)] // 静态模式不读导出符号。
+            #[cfg(any($(feature = $feature),*))]
+            const $exports: &[&str] = &[$($export),*];
+        )*
+
+        #[cfg(any($( $(feature = $feature),* ,)*))]
+        #[allow(dead_code)]
+        mod build_support;
+
+        fn dispatch_builds() {
+            $(
+                #[cfg(any($(feature = $feature),*))]
+                { $build(); }
+            )*
+        }
+    };
+}
+zephyra_build_units!(build_support_decl);
 
 /// CLI 通过 ZEPHYRA_LINK_MODE 选模式；显式 feature 也可打开。
 #[allow(dead_code)]
@@ -75,264 +51,9 @@ fn dynamic_mode() -> bool {
             .unwrap_or(false)
 }
 
-/// 结束一个 codec 的构建。静态模式维持原样；动态模式输出共享库。
-#[allow(dead_code)]
-#[cfg(any(
-    feature = "uavs3d",
-    feature = "av1",
-    feature = "vp9",
-    feature = "vp8",
-    feature = "hevc",
-    feature = "evc",
-    feature = "h264",
-    feature = "vvc",
-    feature = "theora",
-    feature = "mjpeg",
-    feature = "mp3",
-    feature = "opus",
-    feature = "vorbis",
-    feature = "flac"
-))]
-#[cfg(any(
-    feature = "uavs3d",
-    feature = "av1",
-    feature = "vp9",
-    feature = "vp8",
-    feature = "hevc",
-    feature = "evc",
-    feature = "h264",
-    feature = "vvc",
-    feature = "theora",
-    feature = "mjpeg",
-    feature = "mp3",
-    feature = "opus",
-    feature = "vorbis",
-    feature = "flac"
-))]
-fn finish_codec(build: &mut cc::Build, name: &str, exports: &[&str]) {
-    if dynamic_mode() {
-        build.pic(true);
-        let compiler = build.get_compiler().path().to_path_buf();
-        let objects = build.compile_intermediates();
-        // 先打成静态归档，再按常规归档语义链进共享库：只有被导出函数引用到的
-        // object 才会被拉入，未引用的内部符号随 object 一起被丢掉。
-        let archive = build.create_archive(&format!("{name}_static"), &objects);
-        dynamic::link_shared(name, std::slice::from_ref(&archive), exports, &compiler);
-    } else {
-        let _ = exports;
-        build.compile(name);
-    }
-}
-
-/// 把 uavs3d 的 base + AVX2 两组 object 合成一个共享库。
-#[cfg(feature = "uavs3d")]
-fn finish_uavs3d(base: &mut cc::Build, avx2: Option<&mut cc::Build>) {
-    if dynamic_mode() {
-        base.pic(true);
-        let compiler = base.get_compiler().path().to_path_buf();
-        let mut objects = base.compile_intermediates();
-        if let Some(avx2) = avx2 {
-            avx2.pic(true);
-            objects.extend(avx2.compile_intermediates());
-        }
-        let archive = base.create_archive("uavs3d_static", &objects);
-        dynamic::link_shared(
-            "uavs3d",
-            std::slice::from_ref(&archive),
-            UAVS3D_EXPORTS,
-            &compiler,
-        );
-    } else {
-        base.compile("uavs3d");
-        if let Some(avx2) = avx2 {
-            avx2.compile("uavs3d_avx2");
-        }
-    }
-}
-
-#[cfg(any(
-    feature = "uavs3d",
-    feature = "av1",
-    feature = "vp9",
-    feature = "vp8",
-    feature = "hevc",
-    feature = "evc",
-    feature = "h264",
-    feature = "vvc",
-    feature = "theora",
-    feature = "mjpeg",
-    feature = "mp3",
-    feature = "opus",
-    feature = "vorbis",
-    feature = "flac"
-))]
-mod dynamic {
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
-
-    /// OUT_DIR = <target>/<triple>/<profile>/build/<crate>-<hash>/out
-    /// 往上三级就是 exe 所在目录。
-    fn profile_dir() -> PathBuf {
-        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-        out.ancestors()
-            .nth(3)
-            .expect("OUT_DIR/../../..")
-            .to_path_buf()
-    }
-
-    pub fn link_shared(name: &str, objects: &[PathBuf], exports: &[&str], compiler: &Path) {
-        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-        let profile = profile_dir();
-        let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-        let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-
-        // 运行时加载：不再发 dylib 链接指令，缺库不会让 exe 启动失败；
-        // Rust 侧通过 libloading 显式加载，失败写入 DynamicLoadReport。
-        let _ = out;
-
-        let mut cmd = if os == "windows" && env == "msvc" {
-            let def = out.join(format!("{name}.def"));
-            let body = exports
-                .iter()
-                .map(|e| format!("  {e}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            std::fs::write(&def, format!("LIBRARY {name}\nEXPORTS\n{body}\n")).expect("write .def");
-            // link.exe 不在 build script 的 PATH 上，但和 cl.exe 在同一个 VC bin 目录。
-            let linker = compiler
-                .parent()
-                .expect("cl.exe 应有父目录")
-                .join("link.exe");
-            let mut c = Command::new(linker);
-            c.arg("/DLL")
-                .arg("/MACHINE:X64")
-                .arg("/NOLOGO")
-                .arg(format!(
-                    "/OUT:{}",
-                    profile.join(format!("{name}.dll")).display()
-                ))
-                .arg(format!(
-                    "/IMPLIB:{}",
-                    out.join(format!("{name}.lib")).display()
-                ))
-                .arg(format!("/DEF:{}", def.display()));
-            for lib in msvc_lib_paths(compiler) {
-                c.arg(lib);
-            }
-            c
-        } else if os == "windows" {
-            // MinGW：--export-all-symbols 暴露全部全局符号。
-            let mut c = Command::new(compiler);
-            c.arg("-shared")
-                .arg("-Wl,--export-all-symbols")
-                .arg("-o")
-                .arg(profile.join(format!("{name}.dll")));
-            c
-        } else if os == "macos" {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
-            let mut c = Command::new(compiler);
-            c.arg("-dynamiclib")
-                .arg("-o")
-                .arg(profile.join(format!("lib{name}.dylib")));
-            c
-        } else {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-            let mut c = Command::new(compiler);
-            c.arg("-shared")
-                .arg("-o")
-                .arg(profile.join(format!("lib{name}.so")));
-            c.arg("-lm").arg("-lpthread");
-            c
-        };
-
-        // 记录实际产物文件名，供 app 启动时做缺库自检（框架读这个文件）。
-        let lib_name = if os == "windows" {
-            format!("{name}.dll")
-        } else if os == "macos" {
-            format!("lib{name}.dylib")
-        } else {
-            format!("lib{name}.so")
-        };
-        let manifest = profile.join("zephyra_dynamic_libs.txt");
-        let mut existing = std::fs::read_to_string(&manifest).unwrap_or_default();
-        if !existing.lines().any(|l| l == lib_name) {
-            if !existing.is_empty() && !existing.ends_with('\n') {
-                existing.push('\n');
-            }
-            existing.push_str(&lib_name);
-            existing.push('\n');
-            let _ = std::fs::write(&manifest, existing);
-        }
-
-        for obj in objects {
-            cmd.arg(obj);
-        }
-        let output = cmd
-            .output()
-            .unwrap_or_else(|e| panic!("link shared {name}: {e}"));
-        assert!(
-            output.status.success(),
-            "link shared {name} failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    /// build script 的 PATH/LIB 没继承 vcvars，需自己推导出 SDK 库目录。
-    fn msvc_lib_paths(compiler: &Path) -> Vec<String> {
-        let mut out = Vec::new();
-        // cl.exe: ...\VC\Tools\MSVC\<ver>\bin\Hostx64\x64\cl.exe
-        // ancestors: 0=cl.exe, 1=x64, 2=Hostx64, 3=bin, 4=<MSVC 版本目录>
-        if let Some(msvc_ver) = compiler.ancestors().nth(4) {
-            out.push(format!(
-                "/LIBPATH:{}",
-                msvc_ver.join("lib").join("x64").display()
-            ));
-        }
-        let sdk_root = PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10\Lib");
-        if let Ok(rd) = std::fs::read_dir(&sdk_root) {
-            let mut versions: Vec<PathBuf> = rd
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect();
-            versions.sort();
-            if let Some(v) = versions.last() {
-                out.push(format!("/LIBPATH:{}", v.join("um").join("x64").display()));
-                out.push(format!("/LIBPATH:{}", v.join("ucrt").join("x64").display()));
-            }
-        }
-        out
-    }
-}
-
 fn main() {
-    #[cfg(feature = "uavs3d")]
-    build_uavs3d();
-    #[cfg(feature = "av1")]
-    build_av1();
-    #[cfg(any(feature = "vp9", feature = "vp8"))]
-    build_vp9();
-    #[cfg(feature = "hevc")]
-    build_hevc();
-    #[cfg(feature = "evc")]
-    build_evc();
-    #[cfg(feature = "h264")]
-    build_h264();
-    #[cfg(feature = "vvc")]
-    build_vvc();
-    #[cfg(feature = "theora")]
-    build_theora();
-    #[cfg(feature = "mjpeg")]
-    build_mjpeg();
-    #[cfg(feature = "mp3")]
-    build_mp3();
-    #[cfg(feature = "opus")]
-    build_opus();
-    #[cfg(feature = "vorbis")]
-    build_vorbis();
-    #[cfg(feature = "flac")]
-    build_flac();
+    // 构建哪几个单元由 codecs.rs 的 zephyra_build_units! 表决定。
+    dispatch_builds();
 }
 
 #[cfg(feature = "uavs3d")]
@@ -344,7 +65,7 @@ fn build_uavs3d() {
 
     let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
     let system_includes = if msvc {
-        msvc_system_includes()
+        build_support::msvc_system_includes()
     } else {
         Vec::new()
     };
@@ -362,14 +83,14 @@ fn build_uavs3d() {
         .warnings(false);
 
     for dir in ["decoder", "decore"] {
-        for file in c_files(src.join(dir)) {
+        for file in build_support::c_files(src.join(dir)) {
             base.file(file);
         }
     }
 
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     if arch == "x86_64" || arch == "x86" {
-        for file in c_files(src.join("decore/sse")) {
+        for file in build_support::c_files(src.join("decore/sse")) {
             base.file(file);
         }
 
@@ -382,7 +103,7 @@ fn build_uavs3d() {
             avx2.include(dir);
         }
         avx2.define("COMPILE_10BIT", "0").warnings(false);
-        for file in c_files(src.join("decore/avx2")) {
+        for file in build_support::c_files(src.join("decore/avx2")) {
             avx2.file(file);
         }
         if msvc {
@@ -390,11 +111,11 @@ fn build_uavs3d() {
         } else {
             avx2.flag_if_supported("-mavx2");
         }
-        finish_uavs3d(&mut base, Some(&mut avx2));
+        build_support::finish_uavs3d(&mut base, Some(&mut avx2));
     } else {
         // ARM / 其它平台：CMakeLists 用的是 .S 汇编，这里不编，
         // 退到 decore 的纯 C 路径（uavs3d 仍然能解码，只是慢）。
-        finish_uavs3d(&mut base, None);
+        build_support::finish_uavs3d(&mut base, None);
     }
 
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -407,117 +128,6 @@ fn build_uavs3d() {
 /// cc-rs 在这台机器上没把 MSVC / Windows SDK 的头文件目录传给 `cl.exe`
 /// （症状：`time.h: No such file or directory`）。这里直接检测出那些目录，
 /// 以 `-I` 的形式加进去 —— 只影响 C 编译，不改全局环境变量。
-#[cfg(any(
-    feature = "uavs3d",
-    feature = "av1",
-    feature = "vp9",
-    feature = "vp8",
-    feature = "hevc",
-    feature = "evc",
-    feature = "h264",
-    feature = "vvc",
-    feature = "theora",
-    feature = "mjpeg",
-    feature = "mp3",
-    feature = "opus",
-    feature = "vorbis",
-    feature = "flac"
-))]
-fn msvc_system_includes() -> Vec<std::path::PathBuf> {
-    use std::path::PathBuf;
-
-    let mut out = Vec::new();
-
-    // cl.exe 在 <MSVC>\bin\HostX64\x64\cl.exe：往上四级是 <MSVC>。
-    let cl = cc::Build::new().get_compiler().path().to_path_buf();
-    let mut root = cl;
-    for _ in 0..4 {
-        root.pop();
-    }
-    let crt = root.join("include");
-    if crt.is_dir() {
-        out.push(crt);
-    }
-
-    let pf = std::env::var("ProgramFiles(x86)")
-        .or_else(|_| std::env::var("ProgramFiles"))
-        .unwrap_or_else(|_| r"C:\Program Files (x86)".into());
-    let kits = PathBuf::from(pf).join("Windows Kits").join("10");
-    if let Some(version) = latest_subdir(&kits.join("Include")) {
-        for sub in ["ucrt", "um", "shared", "winrt", "cppwinrt"] {
-            let dir = version.join(sub);
-            if dir.is_dir() {
-                out.push(dir);
-            }
-        }
-    }
-    out
-}
-
-#[cfg(any(
-    feature = "uavs3d",
-    feature = "av1",
-    feature = "vp9",
-    feature = "vp8",
-    feature = "hevc",
-    feature = "evc",
-    feature = "h264",
-    feature = "vvc",
-    feature = "theora",
-    feature = "mjpeg",
-    feature = "mp3",
-    feature = "opus",
-    feature = "vorbis",
-    feature = "flac"
-))]
-fn latest_subdir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| path.is_dir())
-        .max()
-}
-
-#[cfg(feature = "uavs3d")]
-fn c_files(dir: std::path::PathBuf) -> Vec<std::path::PathBuf> {
-    use std::path::PathBuf;
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()))
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("c"))
-        .collect();
-    files.sort();
-    files
-}
-
-/// 从 vendored 的 Chromium `.gni` 列表里读出一个变量的所有 `.c` 源文件。
-/// 这两个列表是 Chromium 为各平台生成的精确源码清单 —— 照它编就不必自己
-/// 维护一份会漂移的文件表。
-#[cfg(any(feature = "av1", feature = "vp9", feature = "vp8"))]
-fn gni_sources(gni: &std::path::Path, variable: &str) -> Vec<String> {
-    let text = std::fs::read_to_string(gni)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", gni.display()));
-    // 行首锚定：否则 `template_sources` 会命中 `x86_template_sources`（空列表）。
-    // gni 里既有 `name = [` 也有 `name =\n    [`，所以先找行首的 `name =`，
-    // 再找随后的第一个 `[`。
-    let needle = format!("\n{variable} =");
-    let start = text
-        .find(&needle)
-        .unwrap_or_else(|| panic!("{variable} not found in {}", gni.display()))
-        + 1;
-    let rest = &text[start..];
-    let bracket = rest.find('[').unwrap_or(rest.len());
-    let rest = &rest[bracket..];
-    let end = rest.find(']').unwrap_or(rest.len());
-    rest[..end]
-        .split('"')
-        .skip(1)
-        .step_by(2)
-        .map(|entry| entry.to_string())
-        .filter(|entry| entry.ends_with(".c"))
-        .collect()
-}
-
 #[cfg(feature = "av1")]
 fn build_av1() {
     use std::path::Path;
@@ -554,7 +164,7 @@ fn build_av1() {
         build.define("_POSIX_C_SOURCE", "200112L");
     }
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         // MSVC 14.5x 的 C 运行时把 C11 atomics 放进了 stdatomic.h，
@@ -569,7 +179,7 @@ fn build_av1() {
     build.define("CONFIG_LOG", "0");
 
     // 非模板 C 源码（Chromium 的 c_sources 目标）。
-    for source in gni_sources(&root.join("dav1d_generated.gni"), "c_sources") {
+    for source in build_support::gni_sources(&root.join("dav1d_generated.gni"), "c_sources") {
         build.file(root.join(source));
     }
     // Chromium 的 dav1d_c 目标额外加 win32 线程实现。
@@ -584,7 +194,8 @@ fn build_av1() {
     // 生成两个 wrapper：#define BITDEPTH 后 include 原始模板 —— 这样所有东西
     // 都在**同一个** cc::Build 里编成一个 lib，避免多次 compile() 时的
     // 同名 .o / .lib 冲突（cc-rs 在这台机器上会报 hard-link 失败）。
-    let templates = gni_sources(&root.join("dav1d_generated.gni"), "template_sources");
+    let templates =
+        build_support::gni_sources(&root.join("dav1d_generated.gni"), "template_sources");
     let generated = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"))
         .join("dav1d_templates");
     std::fs::create_dir_all(&generated).expect("create dav1d template dir");
@@ -614,7 +225,7 @@ fn build_av1() {
     }
 
     build.file(root.parent().unwrap().join("dav1d_shim.c"));
-    finish_codec(&mut build, "z_dav1d", DAV1D_EXPORTS);
+    build_support::finish_codec(&mut build, "z_dav1d", DAV1D_EXPORTS);
 }
 
 #[cfg(any(feature = "vp9", feature = "vp8"))]
@@ -650,7 +261,7 @@ fn build_vp9() {
         .define("CHROMIUM", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.flag("/std:c11");
@@ -665,13 +276,13 @@ fn build_vp9() {
     };
     const PREFIX: &str = "//third_party/libvpx/source/libvpx/";
     let gni = root.join("libvpx_srcs.gni");
-    let mut all_sources = gni_sources(&gni, variable);
+    let mut all_sources = build_support::gni_sources(&gni, variable);
     // Chromium 的 win/x64 rtcd 头**无条件**映射到 *_sse2 / *_ssse3 等符号，
     // 即使 HAVE_X86_ASM=0 也要把对应的 intrinsic C 文件编进来（它们是 .c，
     // 不是需要 nasm 的 .asm）。
     let simd_suffix = variable.strip_prefix("libvpx_srcs_").unwrap_or("x86_64");
     for group in ["mmx", "sse2", "ssse3", "sse4_1"] {
-        all_sources.extend(gni_sources(
+        all_sources.extend(build_support::gni_sources(
             &gni,
             &format!("libvpx_srcs_{simd_suffix}_{group}"),
         ));
@@ -681,7 +292,7 @@ fn build_vp9() {
         build.file(root.join(relative));
     }
     build.file(root.parent().unwrap().join("libvpx_shim.c"));
-    finish_codec(&mut build, "z_vpx", VPX_EXPORTS);
+    build_support::finish_codec(&mut build, "z_vpx", VPX_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
@@ -706,7 +317,7 @@ fn build_hevc() {
         .define("LIBDE265_STATIC_BUILD", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.flag("/std:c++11");
@@ -758,7 +369,7 @@ fn build_hevc() {
         build.file(root.join("extra/win32cond.c"));
     }
     build.file(root.parent().unwrap().join("hevc_shim.cpp"));
-    finish_codec(&mut build, "z_hevc", HEVC_EXPORTS);
+    build_support::finish_codec(&mut build, "z_hevc", HEVC_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
@@ -791,7 +402,7 @@ fn build_evc() {
         .define("NDEBUG", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -816,7 +427,7 @@ fn build_evc() {
     }
 
     build.file(root.parent().unwrap().join("xevd_shim.c"));
-    finish_codec(&mut build, "z_evc", EVC_EXPORTS);
+    build_support::finish_codec(&mut build, "z_evc", EVC_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=m");
@@ -858,7 +469,7 @@ fn build_h264() {
         .define("NDEBUG", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.flag("/std:c++11");
@@ -915,7 +526,7 @@ fn build_h264() {
     }
     build.file(root.join("codec/decoder/plus/src/welsDecoderExt.cpp"));
     build.file(root.parent().unwrap().join("openh264_shim.c"));
-    finish_codec(&mut build, "z_h264", H264_EXPORTS);
+    build_support::finish_codec(&mut build, "z_h264", H264_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
@@ -974,7 +585,7 @@ fn build_vvc() {
         .define("VVDEC_SOURCE", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
     } else {
@@ -997,7 +608,7 @@ fn build_vvc() {
         build.file(lib.join("FilmGrain").join(source));
     }
     build.file(root.parent().unwrap().join("vvdec_shim.cpp"));
-    finish_codec(&mut build, "z_vvc", VVC_EXPORTS);
+    build_support::finish_codec(&mut build, "z_vvc", VVC_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=pthread");
@@ -1027,7 +638,7 @@ fn build_theora() {
         .include(root.join("lib"))
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -1053,7 +664,7 @@ fn build_theora() {
         build.file(root.join("lib").join(source));
     }
     build.file(root.parent().unwrap().join("theora_shim.c"));
-    finish_codec(&mut build, "z_theora", THEORA_EXPORTS);
+    build_support::finish_codec(&mut build, "z_theora", THEORA_EXPORTS);
 
     if os != "windows" {
         println!("cargo:rustc-link-lib=m");
@@ -1099,7 +710,7 @@ fn build_mjpeg() {
         // jconfigint.h.in is configured by CMake; supply a minimal one.
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -1184,7 +795,7 @@ fn build_mjpeg() {
         build.file(root.join(source));
     }
     build.file(root.parent().unwrap().join("mjpeg_shim.c"));
-    finish_codec(&mut build, "z_mjpeg", MJPEG_EXPORTS);
+    build_support::finish_codec(&mut build, "z_mjpeg", MJPEG_EXPORTS);
 }
 
 /// MP3 decoding via vendored minimp3 (CC0 public domain).
@@ -1200,13 +811,13 @@ fn build_mp3() {
     let mut build = cc::Build::new();
     build.include(root).warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
     }
     build.file(root.parent().unwrap().join("mp3_shim.c"));
-    finish_codec(&mut build, "z_mp3", MP3_EXPORTS);
+    build_support::finish_codec(&mut build, "z_mp3", MP3_EXPORTS);
 }
 
 /// Opus decoding via vendored libopus (BSD-3), pure-C fixed-point build.
@@ -1231,7 +842,7 @@ fn build_opus() {
         .define("OPUS_BUILD", None)
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -1264,7 +875,7 @@ fn build_opus() {
         }
     }
     build.file(root.parent().unwrap().join("opus_shim.c"));
-    finish_codec(&mut build, "z_opus", OPUS_EXPORTS);
+    build_support::finish_codec(&mut build, "z_opus", OPUS_EXPORTS);
 }
 
 /// Vorbis decoding via vendored libvorbis (BSD-3), decoder only.
@@ -1285,7 +896,7 @@ fn build_vorbis() {
         .include(std::path::Path::new("native/libogg"))
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -1319,7 +930,7 @@ fn build_vorbis() {
     build.file(libogg.join("bitwise.c"));
     build.file(libogg.join("framing.c"));
     build.file(root.parent().unwrap().join("vorbis_shim.c"));
-    finish_codec(&mut build, "z_vorbis", VORBIS_EXPORTS);
+    build_support::finish_codec(&mut build, "z_vorbis", VORBIS_EXPORTS);
 }
 
 /// FLAC decoding via vendored libFLAC (BSD-3), decoder only, no SIMD.
@@ -1340,7 +951,7 @@ fn build_flac() {
         .define("FLAC__HAS_OGG", "0")
         .warnings(false);
     if msvc {
-        for dir in msvc_system_includes() {
+        for dir in build_support::msvc_system_includes() {
             build.include(dir);
         }
         build.define("_CRT_SECURE_NO_WARNINGS", None);
@@ -1368,5 +979,5 @@ fn build_flac() {
         build.file(root.join(source));
     }
     build.file(root.parent().unwrap().join("flac_shim.c"));
-    finish_codec(&mut build, "z_flac", FLAC_EXPORTS);
+    build_support::finish_codec(&mut build, "z_flac", FLAC_EXPORTS);
 }

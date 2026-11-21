@@ -1,0 +1,301 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.89s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running unittests src\lib.rs (target\debug\deps\zephyra_video-7f5f9c86d9fdabfb.exe)
+
+running 226 tests
+test audio::codec::tests::codec_values_stay_chromium_aligned ... ok
+test audio::config::tests::pcm_config_validation ... ok
+test audio::frame::tests::rejects_short_planes ... ok
+test audio::mp3::tests::rejects_non_mp3 ... ok
+test audio::flac::tests::rejects_non_flac ... ok
+test audio::config::tests::compressed_config_allows_unknown_sample_format ... ok
+test audio::codec::tests::sample_format_bytes_and_planarity ... ok
+test audio::frame::tests::planar_frame_validation ... ok
+test audio::mp3::tests::create_and_drop_mp3_decoder ... ok
+test audio::mp3::tests::garbage_returns_error ... ok
+test audio::flac::tests::garbage_returns_error ... ok
+test audio::flac::tests::create_and_drop_flac_decoder ... ok
+test audio::opus::tests::create_and_drop_opus_decoder ... ok
+test audio::opus::tests::garbage_packet_returns_error ... ok
+test audio::opus::tests::rejects_non_opus ... ok
+test audio::vorbis::tests::rejects_non_vorbis ... ok
+test audio::vorbis::tests::garbage_header_returns_error ... ok
+test audio::vorbis::tests::create_and_drop_vorbis_decoder ... ok
+test audio::pcm::tests::deinterleaves_s16 ... ok
+test av1::tests::dav1d_rejects_non_av1_configs ... ok
+test buffer::tests::end_of_stream_buffer_has_no_data ... ok
+test buffer::tests::into_data_moves_the_payload_out ... ok
+test buffer::tests::key_frame_buffer_is_marked ... ok
+test buffer::tests::setters_update_the_fields ... ok
+test codec::tests::codec_names_are_stable ... ok
+test codec::tests::h264_is_the_only_h264_family_codec ... ok
+test av1::tests::create_and_drop_a_dav1d_context ... ok
+test codec::tests::level_constructor_keeps_all_fields ... ok
+test av1::tests::garbage_obu_returns_an_error_not_a_panic ... ok
+test codec::tests::chroma_sampling_values_match_chromium ... ok
+test buffer::tests::discontinuity_defaults_to_false ... ok
+test codec::tests::level_defaults_to_8bit_420 ... ok
+test codec::tests::profile_maps_back_to_its_codec ... ok
+test codec::tests::profile_names_match_their_enum_spelling ... ok
+test buffer::tests::plain_buffer_is_not_a_key_frame ... ok
+test config::tests::aspect_ratio_expands_the_display_size ... ok
+test config::tests::bt601_helper_is_bt709_like_by_default ... ok
+test config::tests::empty_extra_data_means_annex_b ... ok
+test config::tests::getters_return_what_was_passed_in ... ok
+test config::tests::human_readable_string_mentions_the_essentials ... ok
+test config::tests::invalid_aspect_ratio_falls_back_to_natural_size ... ok
+test config::tests::matches_compares_extra_data_by_content ... ok
+test config::tests::matches_ignores_nothing_else ... ok
+test config::tests::non_empty_extra_data_means_avcc ... ok
+test config::tests::non_h264_codecs_have_unknown_bitstream_format ... ok
+test config::tests::profile_must_belong_to_the_codec ... ok
+test config::tests::valid_config_needs_known_codec_and_non_empty_sizes ... ok
+test config::tests::pixel_format_is_reachable_from_config_dependencies ... ok
+test config::tests::visible_rect_must_stay_inside_the_coded_area ... ok
+test decoder::tests::decode_and_reset_reach_the_implementation ... ok
+test decoder::tests::decoder_type_names_are_stable ... ok
+test decoder::tests::default_capabilities_are_conservative ... ok
+test decoder::tests::initialize_returns_the_status_verbatim ... ok
+test decoder::tests::platform_decoder_reports_itself ... ok
+test dxva2::dpb::tests::a_full_dpb_reports_the_conflict_instead_of_reusing_an_index ... ok
+test dxva2::dpb::tests::a_modification_that_finds_nothing_fails_like_chromium ... ok
+test dxva2::dpb::tests::a_non_reference_picture_does_not_stay_in_the_dpb ... ok
+test dxva2::dpb::tests::a_picture_copy_is_independent_of_the_buffer ... ok
+test dxva2::dpb::tests::an_idr_clears_the_dpb ... ok
+test dxva2::dpb::tests::mmco_five_unmarks_every_long_term_picture ... ok
+test dxva2::dpb::tests::mmco_one_drops_the_unmarked_picture_from_the_dpb ... ok
+test dxva2::dpb::tests::mmco_three_turns_the_current_picture_into_a_long_term_one ... ok
+test dxva2::dpb::tests::picture_indices_do_not_repeat_before_the_dpb_is_full ... ok
+test dxva2::dpb::tests::poc_type_one_uses_the_frame_number_offset ... ok
+test dxva2::dpb::tests::poc_type_two_derives_from_the_frame_number ... ok
+test dxva2::dpb::tests::poc_type_zero_does_not_adjust_the_msb_twice ... ok
+test dxva2::dpb::tests::poc_type_zero_tracks_the_lsb ... ok
+test dxva2::dpb::tests::poc_type_zero_wraps_the_msb_forward ... ok
+test dxva2::dpb::tests::reference_list_modification_moves_a_picture_to_the_front ... ok
+test dxva2::dpb::tests::reference_lists_put_the_newest_short_term_picture_first ... ok
+test dxva2::dpb::tests::reset_forgets_everything ... ok
+test dxva2::dpb::tests::the_order_count_carries_the_state_the_next_picture_needs ... ok
+test dxva2::dpb::tests::the_sliding_window_evicts_the_oldest_short_term_picture ... ok
+test dxva2::pic_params::tests::bit_fields_use_the_sdk_bit_order ... ok
+test dxva2::pic_params::tests::constants_are_filled_in ... ok
+test dxva2::pic_params::tests::current_picture_fields_are_copied ... ok
+test dxva2::pic_params::tests::dpb_allocates_unique_picture_indices ... ok
+test dxva2::pic_params::tests::intra_slice_sets_the_intra_pic_flag ... ok
+test dxva2::pic_params::tests::min_luma_bipred_size_flag_follows_the_level ... ok
+test dxva2::pic_params::tests::pic_entry_packs_index_and_flag_into_one_byte ... ok
+test dxva2::pic_params::tests::pic_params_layout_matches_the_sdk ... ok
+test dxva2::pic_params::tests::pic_params_total_size_matches_the_sdk ... ok
+test dxva2::pic_params::tests::qmatrix_only_carries_two_of_the_six_8x8_lists ... ok
+test dxva2::pic_params::tests::qmatrix_prefers_the_pps_scaling_lists ... ok
+test dxva2::pic_params::tests::ref_frame_list_follows_the_dpb_order_not_the_reference_list ... ok
+test dxva2::pic_params::tests::slice_control_entry_is_ten_bytes_little_endian ... ok
+test dxva2::pic_params::tests::slice_groups_are_rejected ... ok
+test dxva2::pic_params::tests::sps_fields_are_copied ... ok
+test dynamic_loader::tests::failure_display_is_actionable ... ok
+test dynamic_loader::tests::unknown_library_has_no_status ... ok
+test dynamic_loader::tests::missing_library_is_reported_not_fatal ... ok
+test evc::tests::xevd_rejects_non_evc_configs ... ok
+test ffi_util::tests::maps_bit_depths_to_planar_formats ... ok
+test ffi_util::tests::samples_per_pixel_follow_bit_depth ... ok
+test frame::tests::bytes_per_pixel_is_the_average_for_planar_formats ... ok
+test frame::tests::cpu_frame_accepts_matching_planes ... ok
+test frame::tests::cpu_frame_rejects_short_plane_data ... ok
+test frame::tests::half_plane_formats_are_two_planes ... ok
+test frame::tests::cpu_frame_rejects_wrong_plane_count ... ok
+test frame::tests::i420_layout_has_three_contiguous_planes ... ok
+test evc::tests::create_and_drop_an_xevd_context ... ok
+test evc::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test frame::tests::is_420_covers_the_four_420_layouts ... ok
+test frame::tests::layout_is_reachable_from_the_frame ... ok
+test frame::tests::native_frame_rejects_wrong_handle_count ... ok
+test frame::tests::nv12_layout_has_two_planes ... ok
+test frame::tests::p010le_layout_is_two_semiplanar_planes ... ok
+test frame::tests::plane_counts_match_chromium ... ok
+test frame::tests::required_buffer_size_covers_the_last_plane ... ok
+test frame::tests::odd_width_uses_ceil_for_chroma ... ok
+test frame::tests::native_frame_carries_opaque_handles ... ok
+test frame::tests::unknown_format_or_empty_size_has_no_layout ... ok
+test frame::tests::unsupported_formats_have_no_layout_rather_than_a_wrong_one ... ok
+test frame::tests::yuv420p10_layout_uses_two_bytes_per_sample ... ok
+test geometry::tests::empty_rect_has_zero_extent ... ok
+test geometry::tests::empty_size_has_zero_dimension ... ok
+test geometry::tests::is_inside_requires_full_containment ... ok
+test h264::bit_reader::tests::empty_input_is_rejected ... ok
+test h264::bit_reader::tests::emulation_prevention_detection_needs_two_zero_bytes ... ok
+test geometry::tests::contains_is_inclusive_on_the_far_edge ... ok
+test geometry::tests::rect_right_and_bottom_are_exclusive ... ok
+test geometry::tests::rect_size_matches_width_and_height ... ok
+test h264::bit_reader::tests::has_more_rbsp_data_sees_the_trailing_zero_padding ... ok
+test h264::bit_reader::tests::has_more_rbsp_data_treats_all_zero_tail_as_empty ... ok
+test h264::bit_reader::tests::reports_remaining_bits ... ok
+test h264::bit_reader::tests::reads_bits_most_significant_first ... ok
+test h264::bit_reader::tests::reads_exp_golomb_codes ... ok
+test h264::bit_reader::tests::rejects_out_of_range_bit_counts ... ok
+test h264::bit_reader::tests::reads_across_byte_boundaries ... ok
+test h264::bit_reader::tests::reading_past_the_end_returns_none ... ok
+test h264::bit_reader::tests::reads_signed_exp_golomb_codes ... ok
+test h264::bit_writer::tests::trailing_bits_pad_to_a_byte_boundary ... ok
+test h264::bit_reader::tests::skips_emulation_prevention_bytes ... ok
+test h264::bit_writer::tests::writer_and_reader_round_trip ... ok
+test h264::bit_writer::tests::byte_count_tracks_completed_bytes ... ok
+test dynamic_loader::tests::load_all_reports_each_enabled_library ... ok
+test h264::bit_writer::tests::writes_bits_across_byte_boundaries ... ok
+test h264::bit_writer::tests::writes_bits_most_significant_first ... ok
+test h264::bit_writer::tests::writes_signed_exp_golomb_codes ... ok
+test h264::converter::tests::access_unit_boundary_nals_match_chromium ... ok
+test h264::converter::tests::annex_b_to_avcc_uses_four_byte_lengths ... ok
+test h264::converter::tests::converter_only_writes_parameter_sets_once ... ok
+test h264::converter::tests::access_unit_boundary_nal_gets_a_four_byte_start_code ... ok
+test h264::converter::tests::converter_output_parses_back_as_nalus ... ok
+test h264::converter::tests::converter_rejects_empty_packets ... ok
+test h264::bit_writer::tests::writes_exp_golomb_codes ... ok
+test h264::converter::tests::converter_rejects_truncated_packets ... ok
+test h264::converter::tests::converter_reset_puts_parameter_sets_back ... ok
+test h264::converter::tests::converter_uses_three_byte_start_code_after_the_first_nal ... ok
+test h264::converter::tests::converter_writes_parameter_sets_first ... ok
+test h264::converter::tests::parameter_sets_are_extracted_in_order ... ok
+test h264::decoder::tests::openh264_rejects_non_h264_configs ... ok
+test h264::nal::tests::avcc_record_is_parsed ... ok
+test h264::nal::tests::access_units_group_parameter_sets_with_the_following_picture ... ok
+test h264::nal::tests::avcc_record_rejects_truncated_input ... ok
+test h264::nal::tests::empty_nalus_are_skipped ... ok
+test h264::nal::tests::finds_four_byte_start_code ... ok
+test h264::nal::tests::finds_three_byte_start_code ... ok
+test h264::nal::tests::nal_level_split_cannot_see_picture_boundaries ... ok
+test h264::nal::tests::nal_types_are_read_from_the_low_five_bits ... ok
+test h264::nal::tests::nalu_header_byte_round_trips ... ok
+test h264::nal::tests::no_start_code_returns_none ... ok
+test h264::nal::tests::parses_annex_b_nalus ... ok
+test h264::decoder::tests::create_and_drop_an_openh264_context ... ok
+test h264::nal::tests::vcl_and_parameter_set_classification ... ok
+test h264::decoder::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test h264::parser::tests::b_slice_header_reads_direct_spatial_mv_pred_flag ... ok
+test h264::parser::tests::baseline_pps_is_parsed ... ok
+test h264::parser::tests::baseline_sps_is_parsed ... ok
+test h264::parser::tests::baseline_sps_scaling_lists_are_flat_sixteen ... ok
+test h264::parser::tests::i_slice_header_is_parsed ... ok
+test h264::parser::tests::idr_slice_reads_idr_pic_id ... ok
+test h264::parser::tests::monochrome_sps_has_no_chroma ... ok
+test h264::parser::tests::parser_groups_slices_of_one_picture_into_one_access_unit ... ok
+test h264::parser::tests::parser_records_parameter_sets_and_slices ... ok
+test h264::parser::tests::p_slice_header_reads_the_reference_list_flag ... ok
+test h264::parser::tests::parser_reset_forgets_parameter_sets ... ok
+test h264::parser::tests::pps_without_its_sps_is_rejected ... ok
+test h264::parser::tests::slice_header_rejects_out_of_range_first_mb ... ok
+test h264::parser::tests::slice_type_from_raw_folds_the_all_slices_variant ... ok
+test h264::parser::tests::slice_type_predicates_follow_chromium ... ok
+test h264::parser::tests::slice_without_its_pps_is_rejected ... ok
+test h264::parser::tests::sps_visible_rect_applies_the_crop ... ok
+test h264::parser::tests::truncated_sps_is_rejected ... ok
+test hevc::tests::hevc_rejects_non_hevc_configs ... ok
+test mjpeg::tests::create_and_drop_an_mjpeg_context ... ok
+test mjpeg::tests::garbage_frame_returns_an_error_not_a_panic ... ok
+test mjpeg::tests::mjpeg_rejects_non_mjpeg_configs ... ok
+test selector::tests::all_candidates_failing_reports_the_last_failure ... ok
+test selector::tests::deprioritized_candidates_are_kept_not_dropped ... ok
+test selector::tests::empty_candidate_list_reports_unsupported_config ... ok
+test selector::tests::large_visible_area_prefers_the_platform_decoder ... ok
+test selector::tests::select_falls_back_to_the_next_candidate ... ok
+test selector::tests::select_returns_the_first_candidate_that_initializes ... ok
+test selector::tests::small_visible_area_prefers_the_software_decoder ... ok
+test status::tests::default_status_is_ok ... ok
+test status::tests::display_includes_code_and_message ... ok
+test status::tests::display_omits_empty_message ... ok
+test status::tests::helper_ok_matches_default ... ok
+test status::tests::message_is_carried_but_not_part_of_equality_of_codes ... ok
+test status::tests::only_hard_errors_require_reset ... ok
+test status::tests::status_codes_keep_chromium_values ... ok
+test theora::tests::create_and_drop_a_libtheora_context ... ok
+test theora::tests::garbage_packet_returns_an_error_not_a_panic ... ok
+test theora::tests::theora_rejects_non_theora_configs ... ok
+test uavs3d::tests::a_four_byte_start_code_loses_its_leading_zero ... ok
+test uavs3d::tests::a_stream_without_start_codes_produces_nothing ... ok
+test uavs3d::tests::emulation_prevention_inside_a_nal_is_not_a_boundary ... ok
+test uavs3d::tests::error_codes_carry_their_symbolic_names ... ok
+test uavs3d::tests::nal_types_match_the_c_decoders_branches ... ok
+test uavs3d::tests::splits_two_nals_and_keeps_their_start_codes ... ok
+test uavs3d::tests::success_codes_are_not_errors ... ok
+test uavs3d::tests::with_c::a_decoder_rejects_non_avs3_configs ... ok
+test vp8::tests::create_and_drop_a_vp8_context ... ok
+test vp8::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test vp8::tests::vpx8_rejects_non_vp8_configs ... ok
+test vp9::tests::create_and_drop_a_vp9_context ... ok
+test vp9::tests::vpx9_rejects_non_vp9_configs ... ok
+test vp9::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test uavs3d::tests::with_c::create_and_drop_a_decoder ... ok
+test uavs3d::tests::with_c::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test vvc::tests::vvdec_rejects_non_vvc_configs ... ok
+test vvc::tests::create_and_drop_a_vvdec_context ... ok
+test vvc::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+test hevc::tests::create_and_drop_a_hevc_context ... ok
+test hevc::tests::garbage_bitstream_returns_an_error_not_a_panic ... ok
+
+test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+libuavs3d( 8): 1.2.0_release, vendored
+libuavs3d( 8): 1.2.0_release, vendored
+     Running tests\audio_playback.rs (target\debug\deps\audio_playback-5325e0fe859bc991.exe)
+
+running 5 tests
+test pcm_passthrough ... ok
+test flac_playback ... ok
+test mp3_playback ... ok
+test vorbis_playback ... ok
+test opus_playback ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\playback.rs (target\debug\deps\playback-46fe7767890a9be2.exe)
+
+running 12 tests
+test playback_vp98 ... ok
+test playback_mjpeg ... ok
+test playback_vp910 ... ok
+test playback_vp8 ... ok
+test playback_theora ... ok
+test playback_av18 ... ok
+test playback_h264 ... ok
+test playback_av110 ... ok
+test playback_hevc8 ... ok
+test playback_hevc10 ... ok
+test playback_evc ... ok
+test playback_vvc ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\real_streams.rs (target\debug\deps\real_streams-cd85c30cbab8f9f9.exe)
+
+running 21 tests
+test decodes_real_mjpeg ... ok
+test decodes_real_vp8 ... ok
+test decodes_real_vp9_8bit ... ok
+test decodes_real_vp9_10bit ... ok
+test decodes_real_theora ... ok
+test decodes_real_av1_8bit ... ok
+test decodes_real_av1_10bit ... ok
+test mjpeg_reset_then_decode_again ... ok
+test decodes_real_h264 ... ok
+test vp8_reset_then_decode_again ... ok
+test av1_reset_then_decode_again ... ok
+test vp9_reset_then_decode_again ... ok
+test theora_reset_then_decode_again ... ok
+test decodes_real_hevc_8bit ... ok
+test decodes_real_hevc_10bit ... ok
+test h264_reset_then_decode_again ... ok
+test hevc_reset_then_decode_again ... ok
+test decodes_real_evc_10bit ... ok
+test decodes_real_vvc_10bit ... ok
+test vvc_reset_then_decode_again ... ok
+test evc_reset_then_decode_again ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests zephyra_video
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

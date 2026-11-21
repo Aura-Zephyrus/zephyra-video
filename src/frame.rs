@@ -12,6 +12,7 @@
 //! 而平面数是纹理上传路径要按它分支的。
 
 use crate::geometry::{Rect, Size};
+use bytes::Bytes;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -447,7 +448,11 @@ impl VideoFrameLayout {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VideoPlane {
     /// 系统内存里的像素。
-    Cpu { data: Vec<u8> },
+    ///
+    /// 用 `Arc<[u8]>` 而不是 `Vec<u8>`：解码器交出平面后，帧在压缩缓冲
+    /// 复用 / 解码器销毁之后仍然有效；`Vec<u8> -> Arc<[u8]>` 转移的是
+    /// 原来的分配，不复制一个字节，渲染侧也能把同一个 `Arc` 直接借给契约层。
+    Cpu { data: Arc<[u8]> },
     /// 平台原生资源。`handle` 是**不透明**的，含义由生产方与消费方约定。
     ///
     /// 本 crate 的 Windows 后端用它携带 `ID3D11Texture2D` 指针 ——
@@ -465,7 +470,30 @@ impl VideoPlane {
     /// 系统内存数据（不是 CPU 平面则返回 `None`）。
     pub fn cpu_data(&self) -> Option<&[u8]> {
         match self {
+            VideoPlane::Cpu { data } => Some(data.as_ref()),
+            VideoPlane::Native { .. } => None,
+        }
+    }
+
+    /// 共享所有权的数据（不是 CPU 平面则返回 `None`）。
+    ///
+    /// 渲染后端做纹理上传时可以 clone 这个 `Arc`（只加引用计数），
+    /// 不必再把平面拷一遍。
+    pub fn cpu_arc(&self) -> Option<&Arc<[u8]>> {
+        match self {
             VideoPlane::Cpu { data } => Some(data),
+            VideoPlane::Native { .. } => None,
+        }
+    }
+
+    /// 零拷贝的 `Bytes` 出口：把 [`VideoPlane::Cpu`] 的 `Arc<[u8]>` 所有权交给
+    /// `Bytes::from_owner`，**只加一次引用计数，平面字节一个都不复制**。
+    ///
+    /// 下游若用 `Arc<[u8]>` 存平面就必须 memcpy；用 `bytes::Bytes` 存平面的契约
+    /// （如主仓 `CpuPlanes`）直接用这个方法即可零拷贝交付。`slice` 同样零拷贝。
+    pub fn bytes(&self) -> Option<Bytes> {
+        match self {
+            VideoPlane::Cpu { data } => Some(Bytes::from_owner(Arc::clone(data))),
             VideoPlane::Native { .. } => None,
         }
     }
@@ -489,15 +517,18 @@ pub struct VideoFrame {
 impl VideoFrame {
     /// 用**系统内存**里的像素造一帧。
     ///
+    /// `planes` 接受 `Vec<u8>` 或 `Arc<[u8]>`：前者在 `Into` 那一步转移分配，
+    /// 后者连引用计数都不用动。两种输入都不会产生平面数据拷贝。
+    ///
     /// `planes` 的长度必须等于格式的平面数；每个平面的数据长度必须至少
     /// 满足该平面的 `stride × 行数`。不满足就返回 `None` —— 宁可造不出帧，
     /// 也不要造一帧「看起来能显示、实际越界」的东西。
-    pub fn from_cpu(
+    pub fn from_cpu<T: Into<Arc<[u8]>> + AsRef<[u8]>>(
         format: VideoPixelFormat,
         coded_size: Size,
         visible_rect: Rect,
         natural_size: Size,
-        planes: Vec<Vec<u8>>,
+        planes: Vec<T>,
         timestamp: i64,
         duration: i64,
     ) -> Option<Self> {
@@ -508,7 +539,7 @@ impl VideoFrame {
         for (i, plane) in planes.iter().enumerate() {
             let geom = layout.planes()[i];
             let rows = layout.plane_rows(i);
-            if plane.len() < geom.stride * rows {
+            if plane.as_ref().len() < geom.stride * rows {
                 return None;
             }
         }
@@ -520,7 +551,7 @@ impl VideoFrame {
             layout,
             planes: planes
                 .into_iter()
-                .map(|data| VideoPlane::Cpu { data })
+                .map(|data| VideoPlane::Cpu { data: data.into() })
                 .collect(),
             timestamp,
             duration,

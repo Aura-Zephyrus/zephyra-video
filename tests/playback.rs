@@ -273,6 +273,8 @@ fn evc_annexb(bytes: &'static [u8]) -> Vec<Vec<u8>> {
     vec![out]
 }
 
+// 默认构建没有任何 codec feature，所有调用点都被 cfg 掉，宏本身仍未使用。
+#[allow(unused_macros)]
 macro_rules! playback_test {
     ($name:ident, $ctor:expr, $codec:expr, $bitstream:expr, $reference:expr, $w:expr, $h:expr, $bytes:expr, $mad:expr, $packets:expr) => {
         #[test]

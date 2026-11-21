@@ -2,6 +2,24 @@
 
 use super::super::{VideoChromaSampling, VideoCodec, VideoCodecLevel, VideoCodecProfile};
 
+// codecs.rs 是后端接线（模块 / re-export / load_all）的唯一声明处；
+// 漏加 Cargo feature 的症状原本是「silent no-op」，这条测试把它变成硬失败。
+#[test]
+fn codec_registry_features_are_declared_in_cargo_toml() {
+    const MANIFEST: &str = include_str!("../../Cargo.toml");
+    assert_eq!(
+        super::super::CODEC_MANIFEST.len(),
+        14,
+        "codecs.rs 的声明条目数变化时需同步更新本断言"
+    );
+    for &(feature, module, decoder) in super::super::CODEC_MANIFEST {
+        assert!(
+            MANIFEST.lines().any(|line| line.trim_start().starts_with(&format!("{feature} ="))),
+            "codec {module}/{decoder} 在 codecs.rs 里声明了 feature '{feature}'，但 Cargo.toml 没有它"
+        );
+    }
+}
+
 #[test]
 fn h264_is_the_only_h264_family_codec() {
     assert!(VideoCodec::H264.is_h264_family());

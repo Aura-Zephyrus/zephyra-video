@@ -250,40 +250,36 @@ pub unsafe fn load_symbol<T: Copy>(
 ///
 /// 主程序可在启动时调用它，根据报告决定是继续运行、提示用户，还是退出。
 pub fn load_all() -> DynamicLoadReport {
-    #[cfg(feature = "uavs3d")]
-    crate::uavs3d::ensure_loaded();
-    #[cfg(feature = "av1")]
-    crate::av1::ensure_loaded();
-    #[cfg(feature = "vp8")]
-    crate::vp8::ensure_loaded();
-    #[cfg(feature = "vp9")]
-    crate::vp9::ensure_loaded();
-    #[cfg(feature = "hevc")]
-    crate::hevc::ensure_loaded();
-    #[cfg(feature = "h264")]
-    crate::h264::decoder::ensure_loaded();
-    #[cfg(feature = "evc")]
-    crate::evc::ensure_loaded();
-    #[cfg(feature = "vvc")]
-    crate::vvc::ensure_loaded();
-    #[cfg(feature = "theora")]
-    crate::theora::ensure_loaded();
-    #[cfg(feature = "mjpeg")]
-    crate::mjpeg::ensure_loaded();
-    #[cfg(feature = "mp3")]
-    crate::audio::mp3::ensure_loaded();
-    #[cfg(feature = "opus")]
-    crate::audio::opus::ensure_loaded();
-    #[cfg(feature = "vorbis")]
-    crate::audio::vorbis::ensure_loaded();
-    #[cfg(feature = "flac")]
-    crate::audio::flac::ensure_loaded();
+    // 与模块声明 / re-export 同源：新增 codec 不必再来这里加一行。
+    zephyra_codecs!(emit_load_all_calls);
     current_report()
 }
 
 #[cfg(all(test, feature = "dynamic"))]
 mod tests {
     use super::*;
+
+    // 测试专用假库：名字不可能存在，加载必定失败。
+    // 验证 check_lib! 会主动触发加载，而不是先查空报告就放过错误。
+    crate::codec_api!("__zephyra_test_missing__";
+        fn __zephyra_test_missing_open() -> i32;
+    );
+
+    #[test]
+    fn check_lib_triggers_loading_before_querying_status() {
+        // 不调用 load_all，也不手动 load_library：
+        // 修复前 check_lib! 直接查 library_status（此刻为空）→ None（漏报）；
+        // 修复后 check_lib! 先 ensure_loaded() → 记录 NotFound → Some(status)。
+        let status = crate::check_lib!("__zephyra_test_missing__");
+        assert!(
+            status.is_some(),
+            "check_lib! must trigger loading so a missing library is reported"
+        );
+        assert!(matches!(
+            library_status("__zephyra_test_missing__"),
+            Some(Err(LoadFailure::NotFound { .. }))
+        ));
+    }
 
     #[test]
     fn load_all_reports_each_enabled_library() {

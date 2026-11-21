@@ -10,30 +10,12 @@ pub mod decoder;
 pub mod frame;
 pub mod pcm;
 
-#[cfg(feature = "flac")]
-#[allow(unsafe_code)]
-pub mod flac;
-#[cfg(feature = "mp3")]
-#[allow(unsafe_code)]
-pub mod mp3;
-#[cfg(feature = "opus")]
-#[allow(unsafe_code)]
-pub mod opus;
-#[cfg(feature = "vorbis")]
-#[allow(unsafe_code)]
-pub mod vorbis;
+// 音频后端的模块声明与 re-export 同样派生自 codecs.rs 的单一声明表。
+zephyra_codecs!(emit_audio_codec_items);
 
 pub use buffer::AudioBuffer;
 pub use codec::{AudioCodec, AudioDecoderType, AudioSampleFormat};
 pub use config::AudioDecoderConfig;
 pub use decoder::AudioDecoder;
-#[cfg(feature = "flac")]
-pub use flac::FlacDecoder;
 pub use frame::AudioFrame;
-#[cfg(feature = "mp3")]
-pub use mp3::Mp3Decoder;
-#[cfg(feature = "opus")]
-pub use opus::OpusDecoder;
 pub use pcm::PcmDecoder;
-#[cfg(feature = "vorbis")]
-pub use vorbis::VorbisDecoder;

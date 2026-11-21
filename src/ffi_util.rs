@@ -8,6 +8,7 @@
 
 use std::cell::Cell;
 use std::ffi::{c_int, c_void};
+use std::sync::Arc;
 
 use crate::frame::{VideoFrame, VideoPixelFormat};
 use crate::geometry::{Rect, Size};
@@ -89,14 +90,17 @@ const fn bytes_per_sample(format: VideoPixelFormat) -> usize {
     }
 }
 
-/// 把 C 平面拷成紧密排列的字节；`stride` 是 C 的行距（字节）。
+/// 把 C 平面直接拷进一个 `Arc<[u8]>`；`stride` 是 C 的行距（字节）。
+///
+/// 先分配 `Arc` 再写入它的存储，避免「先 `Vec` 再转 `Arc`」这条多余的所有权
+/// 交接路径。`Arc::get_mut` 在刚创建、强计数为 1 时一定成功。
 fn copy_plane(
     src: *const u8,
     stride: isize,
     width: usize,
     height: usize,
     bytes_per_sample: usize,
-) -> Option<Vec<u8>> {
+) -> Option<Arc<[u8]>> {
     if src.is_null() || stride <= 0 {
         return None;
     }
@@ -105,17 +109,19 @@ fn copy_plane(
     if stride < row_bytes {
         return None;
     }
-    let mut out = vec![0u8; row_bytes.checked_mul(height)?];
+    let total = row_bytes.checked_mul(height)?;
+    let mut plane: Arc<[u8]> = vec![0u8; total].into();
+    let out = Arc::get_mut(&mut plane).expect("freshly created plane Arc is uniquely owned");
     for row in 0..height {
         // 恶意码流可能报告超大 stride；乘法溢出会让 add() 落到任意地址。
         let offset = row.checked_mul(stride)?;
         // SAFETY: 上游保证该平面有 `height` 行、每行 `stride` 字节。
         let from = unsafe { src.add(offset) };
         let to = &mut out[row * row_bytes..(row + 1) * row_bytes];
-        // SAFETY: 源是 C 所有、目标是新建的 Vec，二者不重叠。
+        // SAFETY: 源是 C 所有、目标是新建的 Arc 存储，二者不重叠。
         unsafe { std::ptr::copy_nonoverlapping(from, to.as_mut_ptr(), row_bytes) };
     }
-    Some(out)
+    Some(plane)
 }
 
 /// 真正复位一个 C 解码器：关闭旧上下文再开一个新的。

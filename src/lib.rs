@@ -9,7 +9,8 @@
 //! 而那正是「迁移缝能被验证」的前提。
 //!
 //! 所以它是独立的 crate，并且**默认 feature 为空**：`cargo build` 与
-//! `cargo test` 既不编译设备代码，也不引入任何依赖。
+//! `cargo test` 不编译任何设备代码。默认构建唯一的依赖是 `bytes`（纯 Rust、
+//! 零平台 API），用于给 CPU 平面提供零拷贝 `Bytes` 出口。
 //!
 //! # 与 Chromium 的对应关系
 //!
@@ -55,6 +56,13 @@
 //! | `vvc` | `cc`（构建期） | vendored vvdec（Clear BSD，输出 8bit I420） |
 //! | `theora` | `cc`（构建期） | vendored libtheora + libogg headers（BSD-3，输出 8bit I420） |
 //! | `mjpeg` | `cc`（构建期） | vendored libjpeg-turbo（BSD-3/IJG，输出 8bit I420） |
+//! | `mp3` / `opus` / `vorbis` / `flac` | `cc`（构建期） | 音频：vendored minimp3 / libopus / libvorbis / libFLAC（PCM 解码器默认可用，无 feature） |
+//! | `dynamic` | `libloading`（运行期） | 把 vendored C 库编成共享库并运行时加载；缺库进 `DynamicLoadReport`，不让进程启动失败 |
+//! | `video` / `audio` / `all-codecs` | 上方对应 feature 的并集 | 一键开启软件视频 / 音频 / 全部编解码器（均不含 `dxva2`、`dynamic`） |
+//!
+//! 后端接线只有一个声明处：仓库根的 `codecs.rs`。模块声明、crate 根
+//! re-export、`load_all()` 的加载入口和 build.rs 的导出符号表都从它派生 ——
+//! 新增复用现有 vendored 库的 codec 只改那一行加 `Cargo.toml` 的 feature。
 //!
 //! [`dxva2`] 模块**默认就存在** —— 里面的 DPB 与图片参数是纯逻辑，
 //! 没有 GPU 的机器也要能单测它们。`dxva2` feature 只多出
@@ -72,10 +80,11 @@
 //! 所以本 crate 的 Windows 后端也走 DXVA2：形状与 Chromium 一致，
 //! 输出同样是 GPU 纹理。
 
+// 解码器后端的模块声明与 re-export 由 codecs.rs 的单一声明表生成。
+// 必须排在 audio / dynamic_loader 之前：那两个模块会用这里定义的宏。
+include!("codec_registry.rs");
+
 pub mod audio;
-#[cfg(feature = "av1")]
-#[allow(unsafe_code)]
-pub mod av1;
 pub mod buffer;
 pub mod codec;
 pub mod config;
@@ -83,51 +92,21 @@ pub mod decoder;
 pub mod dxva2;
 #[cfg(feature = "dynamic")]
 pub mod dynamic_loader;
-#[cfg(feature = "evc")]
-#[allow(unsafe_code)]
-pub mod evc;
 #[allow(unsafe_code)]
 pub mod ffi_util;
 pub mod frame;
 pub mod geometry;
+// h264 / uavs3d 的纯逻辑部分默认构建就在；解码器类型仍由声明表门控。
 pub mod h264;
-#[cfg(feature = "hevc")]
-#[allow(unsafe_code)]
-pub mod hevc;
 mod macros;
-#[cfg(feature = "mjpeg")]
-#[allow(unsafe_code)]
-pub mod mjpeg;
 pub mod selector;
 pub mod status;
-#[cfg(feature = "theora")]
-#[allow(unsafe_code)]
-pub mod theora;
 pub mod uavs3d;
-#[cfg(feature = "vp8")]
-#[allow(unsafe_code)]
-pub mod vp8;
-#[cfg(feature = "vp9")]
-#[allow(unsafe_code)]
-pub mod vp9;
-#[cfg(feature = "vvc")]
-#[allow(unsafe_code)]
-pub mod vvc;
 
-#[cfg(feature = "flac")]
-pub use audio::FlacDecoder;
-#[cfg(feature = "mp3")]
-pub use audio::Mp3Decoder;
-#[cfg(feature = "opus")]
-pub use audio::OpusDecoder;
-#[cfg(feature = "vorbis")]
-pub use audio::VorbisDecoder;
 pub use audio::{
     AudioBuffer, AudioCodec, AudioDecoder, AudioDecoderConfig, AudioDecoderType, AudioFrame,
     AudioSampleFormat, PcmDecoder,
 };
-#[cfg(feature = "av1")]
-pub use av1::Dav1dDecoder;
 pub use buffer::DecoderBuffer;
 pub use codec::{VideoChromaSampling, VideoCodec, VideoCodecLevel, VideoCodecProfile};
 pub use config::{
@@ -139,28 +118,10 @@ pub use decoder::{VideoDecoder, VideoDecoderType};
 pub use dynamic_loader::{
     current_report, library_status, load_all, DynamicLoadReport, LoadFailure,
 };
-#[cfg(feature = "evc")]
-pub use evc::XevdDecoder;
 pub use frame::{
     ColorPlaneLayout, NativeResourceOwner, VideoFrame, VideoFrameLayout, VideoPixelFormat,
     VideoPlane,
 };
 pub use geometry::{Rect, Size};
-#[cfg(feature = "h264")]
-pub use h264::OpenH264Decoder;
-#[cfg(feature = "hevc")]
-pub use hevc::HevcDecoder;
-#[cfg(feature = "mjpeg")]
-pub use mjpeg::MjpegDecoder;
 pub use selector::{select_decoder_priority, DecoderPriority, DecoderSelector};
 pub use status::{ok, DecoderStatus, DecoderStatusCode};
-#[cfg(feature = "theora")]
-pub use theora::TheoraDecoder;
-#[cfg(feature = "uavs3d")]
-pub use uavs3d::Uavs3dDecoder;
-#[cfg(feature = "vp8")]
-pub use vp8::Vpx8Decoder;
-#[cfg(feature = "vp9")]
-pub use vp9::Vpx9Decoder;
-#[cfg(feature = "vvc")]
-pub use vvc::VvdecDecoder;

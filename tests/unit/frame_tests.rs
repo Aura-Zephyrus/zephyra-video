@@ -3,6 +3,7 @@
 use super::super::{
     ColorPlaneLayout, Rect, Size, VideoFrame, VideoFrameLayout, VideoPixelFormat, VideoPlane,
 };
+use std::sync::Arc;
 
 #[test]
 fn plane_counts_match_chromium() {
@@ -166,6 +167,45 @@ fn cpu_frame_accepts_matching_planes() {
     assert_eq!(frame.format(), VideoPixelFormat::I420);
     assert_eq!(frame.coded_size(), size);
     assert!(frame.planes().iter().all(VideoPlane::is_cpu));
+}
+
+#[test]
+fn cpu_frame_keeps_the_original_arc_allocation() {
+    // 零拷贝的可观测判据：同一块分配的指针不随 `from_cpu` / `clone` 改变。
+    // Vec<u8> -> Arc<[u8]> 与帧克隆都只转移所有权 / 加引用计数。
+    let y: Arc<[u8]> = vec![7u8; 16].into();
+    let source_ptr = y.as_ptr();
+    let size = Size::new(4, 4);
+    let frame = VideoFrame::from_cpu(
+        VideoPixelFormat::I420,
+        size,
+        Rect::new(0, 0, 4, 4),
+        size,
+        vec![y.clone(), vec![0; 4].into(), vec![0; 4].into()],
+        0,
+        0,
+    )
+    .unwrap();
+    let stored = frame.planes()[0].cpu_arc().expect("CPU plane");
+    assert!(Arc::ptr_eq(&y, stored), "from_cpu must not copy plane data");
+    assert_eq!(stored.as_ptr(), source_ptr);
+
+    let cloned = frame.clone();
+    let cloned_arc = cloned.planes()[0].cpu_arc().expect("CPU plane");
+    assert!(Arc::ptr_eq(stored, cloned_arc), "clone must share the Arc");
+    assert_eq!(Arc::strong_count(stored), 3); // 原 Arc、frame、cloned
+}
+
+#[test]
+fn video_plane_bytes_from_owner_is_zero_copy() {
+    let y: Arc<[u8]> = vec![11u8; 16].into();
+    let ptr = y.as_ptr();
+    let plane = VideoPlane::Cpu { data: y };
+    let bytes = plane.bytes().expect("CPU plane");
+    assert_eq!(bytes.as_ptr(), ptr, "from_owner must not copy plane data");
+    let sliced = bytes.slice(0..8);
+    assert_eq!(sliced.as_ptr(), ptr, "slice must not copy");
+    assert!(VideoPlane::Native { handle: 1 }.bytes().is_none());
 }
 
 #[test]
