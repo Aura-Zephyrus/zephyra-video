@@ -17,6 +17,23 @@ typedef void (*z_vvc_frame_cb)(int w, int h, int bpc, int layout,
                                const uint8_t *u, ptrdiff_t us,
                                const uint8_t *v, ptrdiff_t vs);
 
+static void emit_frame(vvdecDecoder *dec, vvdecFrame *frame, z_vvc_frame_cb callback)
+{
+    if (callback && frame && frame->numPlanes >= 3 &&
+        frame->colorFormat == VVDEC_CF_YUV420_PLANAR &&
+        frame->width > 0 && frame->height > 0 &&
+        frame->planes[0].ptr && frame->planes[1].ptr && frame->planes[2].ptr) {
+        const int w = (int)frame->width;
+        const int h = (int)frame->height;
+        callback(w, h, (int)frame->bitDepth, 1,
+                 frame->planes[0].ptr, (ptrdiff_t)frame->planes[0].stride,
+                 frame->planes[1].ptr, (ptrdiff_t)frame->planes[1].stride,
+                 frame->planes[2].ptr, (ptrdiff_t)frame->planes[2].stride);
+    }
+    if (frame)
+        vvdec_frame_unref(dec, frame);
+}
+
 extern "C" {
 
 int z_vvc_open(void **out)
@@ -76,21 +93,27 @@ int z_vvc_decode(void *handle, const uint8_t *data, int len,
     if (ret != VVDEC_OK)
         return ret;
 
-    if (frame) {
-        if (callback && frame->numPlanes >= 3 &&
-            frame->colorFormat == VVDEC_CF_YUV420_PLANAR &&
-            frame->width > 0 && frame->height > 0 &&
-            frame->planes[0].ptr && frame->planes[1].ptr && frame->planes[2].ptr) {
-            const int w = (int)frame->width;
-            const int h = (int)frame->height;
-            callback(w, h, (int)frame->bitDepth, 1,
-                     frame->planes[0].ptr, (ptrdiff_t)frame->planes[0].stride,
-                     frame->planes[1].ptr, (ptrdiff_t)frame->planes[1].stride,
-                     frame->planes[2].ptr, (ptrdiff_t)frame->planes[2].stride);
-        }
-        vvdec_frame_unref(dec, frame);
-    }
+    emit_frame(dec, frame, callback);
     return 0;
+}
+
+/* Drain delayed pictures at end of stream. */
+int z_vvc_flush(void *handle, z_vvc_frame_cb callback)
+{
+    vvdecDecoder *dec = (vvdecDecoder *)handle;
+    vvdecFrame *frame = NULL;
+    int ret;
+
+    if (!dec)
+        return -1;
+    for (;;) {
+        ret = vvdec_flush(dec, &frame);
+        if (ret != VVDEC_OK || !frame)
+            break;
+        emit_frame(dec, frame, callback);
+        frame = NULL;
+    }
+    return (ret == VVDEC_OK || ret == VVDEC_EOF) ? 0 : ret;
 }
 
 } // extern "C"

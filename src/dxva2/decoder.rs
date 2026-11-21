@@ -28,14 +28,18 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, ID3D11VideoContext,
     ID3D11VideoDecoder, ID3D11VideoDecoderOutputView, ID3D11VideoDevice, D3D11_BIND_DECODER,
     D3D11_BIND_SHADER_RESOURCE, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_DECODER_PROFILE_H264_VLD_NOFGT, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_DEFAULT, D3D11_VDOV_DIMENSION_TEXTURE2D, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM,
+    D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_DECODER_PROFILE_H264_VLD_NOFGT,
+    D3D11_RESOURCE_MISC_SHARED, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    D3D11_VDOV_DIMENSION_TEXTURE2D, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM,
     D3D11_VIDEO_DECODER_BUFFER_DESC, D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX,
     D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL,
     D3D11_VIDEO_DECODER_BUFFER_TYPE, D3D11_VIDEO_DECODER_CONFIG, D3D11_VIDEO_DECODER_DESC,
     D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::{
+    Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
+    IDXGIResource,
+};
 
 use crate::buffer::DecoderBuffer;
 use crate::codec::VideoCodec;
@@ -417,7 +421,8 @@ impl Dxva2H264Decoder {
         self.dpb
             .commit_picture(&sps, header, picture_index, &order_cnt);
 
-        let handle = texture.as_raw() as u64;
+        // 存跨 API 共享句柄：D3D11 / D3D12 / Vulkan 后端都能用它导入同一张纹理。
+        let handle = Self::shared_handle(&texture).unwrap_or(texture.as_raw() as u64);
         let owner = NativeResourceOwner::new(texture);
         let coded_size = self.coded_size();
         VideoFrame::from_native_owned(
@@ -438,6 +443,18 @@ impl Dxva2H264Decoder {
                 "the output frame does not match the NV12 layout",
             )
         })
+    }
+
+    /// 取 DXVA2 输出纹理的跨 API 共享句柄。
+    ///
+    /// 纹理创建时带 `D3D11_RESOURCE_MISC_SHARED`，因此 D3D12 / Vulkan 后端可以
+    /// 用这个句柄导入同一张纹理而不经过系统内存。返回 `None` 表示查询失败。
+    pub fn shared_handle(texture: &ID3D11Texture2D) -> Option<u64> {
+        // SAFETY: `texture` 是有效 COM 对象；QueryInterface 返回的接口由 ComPtr 管理。
+        let resource: IDXGIResource = texture.cast().ok()?;
+        // SAFETY: QueryInterface 得到的 IDXGIResource 有效，调用不写调用方内存。
+        let handle = unsafe { resource.GetSharedHandle() }.ok()?;
+        Some(handle.0 as u64)
     }
 
     /// 取（必要时创建）某个图片索引的输出纹理。
@@ -461,7 +478,8 @@ impl Dxva2H264Decoder {
             // 驱动要往里画，消费方要拿它当纹理采样。
             BindFlags: (D3D11_BIND_DECODER.0 as u32) | (D3D11_BIND_SHADER_RESOURCE.0 as u32),
             CPUAccessFlags: 0,
-            MiscFlags: 0,
+            // 让 D3D12 / Vulkan 渲染后端能通过共享句柄导入同一张纹理（零拷贝）。
+            MiscFlags: D3D11_RESOURCE_MISC_SHARED.0 as u32,
         };
         let state = self
             .state

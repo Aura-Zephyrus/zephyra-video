@@ -46,6 +46,20 @@ impl NativeResourceOwner {
     pub fn strong_count(&self) -> usize {
         Arc::strong_count(&self.inner)
     }
+
+    /// 把持有者向下转型为具体平台资源类型。
+    ///
+    /// 视频解码器（如 DXVA2）在原生平面里放的是 `ID3D11Texture2D*` 的共享
+    /// 持有者；上层渲染后端需要按真实类型取出该句柄才能做零拷贝导入。
+    /// 类型不匹配时返回 `None`。
+    pub fn downcast_ref<T: Any + Send + Sync>(&self) -> Option<&T> {
+        self.inner.downcast_ref::<T>()
+    }
+
+    /// 取回底层 `Arc`，用于跨 API 共享（例如 D3D11 → D3D12 共享句柄）。
+    pub fn downcast_arc<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        Arc::clone(&self.inner).downcast::<T>().ok()
+    }
 }
 
 impl std::fmt::Debug for NativeResourceOwner {

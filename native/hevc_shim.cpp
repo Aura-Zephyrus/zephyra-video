@@ -36,6 +36,52 @@ extern "C" void z_hevc_reset(void *handle)
         de265_reset((de265_decoder_context *)handle);
 }
 
+static void drain_pictures(de265_decoder_context *ctx, z_hevc_frame_cb callback)
+{
+    /* 上限防止 de265_decode 持续返回 OK/more=1 但不出图时死循环。 */
+    for (int guard = 0; guard < 100000; guard++) {
+        int more = 0;
+        de265_error err = de265_decode(ctx, &more);
+        /* Drain queued pictures even when de265_decode asks for more input. */
+        const de265_image *image = de265_get_next_picture(ctx);
+        if (!image && (err != DE265_OK || !more))
+            break;
+        if (image) {
+            if (callback) {
+                int chroma = (int)de265_get_chroma_format(image);
+                int bpc = de265_get_bits_per_pixel(image, 0);
+                int ys = 0, us = 0, vs = 0;
+                const uint8_t *y = de265_get_image_plane(image, 0, &ys);
+                const uint8_t *u = de265_get_image_plane(image, 1, &us);
+                const uint8_t *v = de265_get_image_plane(image, 2, &vs);
+                callback(de265_get_image_width(image, 0),
+                         de265_get_image_height(image, 0),
+                         bpc, chroma, y, ys, u, us, v, vs);
+            }
+            de265_release_next_picture(ctx);
+        }
+    }
+}
+
+/* End-of-stream: push EOS and drain delayed (reordered) pictures. */
+extern "C" int z_hevc_flush(void *handle, z_hevc_frame_cb callback)
+{
+    de265_decoder_context *ctx = (de265_decoder_context *)handle;
+    if (!ctx)
+        return -1;
+    /* This libde265 has no EOS API; mark frame/NAL end and drain. */
+    de265_push_end_of_NAL(ctx);
+    de265_push_end_of_frame(ctx);
+    /* Repeated flush + decode lets the DPB release reordered frames. */
+    for (int i = 0; i < 8; i++) {
+        de265_flush_data(ctx);
+        int more = 0;
+        de265_decode(ctx, &more);
+        drain_pictures(ctx, callback);
+    }
+    return 0;
+}
+
 /*
  * Push one Annex-B buffer (start-code NAL units), drain all pictures.
  * Returns 0 on success, negative on a fatal decoder error.
@@ -47,36 +93,29 @@ extern "C" int z_hevc_decode(void *handle, const uint8_t *data, int len,
     if (!ctx || !data || len <= 0)
         return -1;
 
-    if (de265_push_data(ctx, data, len, 0, NULL) != DE265_OK)
-        return -1;
+    /* Push each Annex-B NAL *including* its start code; libde265 needs the
+     * start code to find NAL boundaries. */
+    {
+        int sc = -1;
+        int i = 0;
+        while (i + 2 < len) {
+            if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
+                if (sc >= 0)
+                    de265_push_data(ctx, data + sc, i - sc, 0, NULL);
+                sc = i;
+                i += 3;
+            } else {
+                i++;
+            }
+        }
+        if (sc >= 0)
+            de265_push_data(ctx, data + sc, len - sc, 0, NULL);
+    }
     de265_push_end_of_NAL(ctx);
+    de265_push_end_of_frame(ctx);
     if (de265_flush_data(ctx) != DE265_OK)
         return -1;
 
-    for (;;) {
-        int more = 0;
-        de265_error err = de265_decode(ctx, &more);
-        if (err != DE265_OK)
-            break;
-
-        const de265_image *image = de265_get_next_picture(ctx);
-        if (image) {
-            if (callback) {
-                int chroma = (int)de265_get_chroma_format(image);
-                int bpc = de265_get_bits_per_pixel(image, 0);
-                int ys = 0, us = 0, vs = 0;
-                const uint8_t *y = de265_get_image_plane(image, 0, &ys);
-                const uint8_t *u = de265_get_image_plane(image, 1, &us);
-                const uint8_t *v = de265_get_image_plane(image, 2, &vs);
-                callback(de265_get_image_width(image, 0),
-                         de265_get_image_height(image, 0),
-                         bpc, chroma,
-                         y, ys, u, us, v, vs);
-            }
-            de265_release_next_picture(ctx);
-        }
-        if (!more)
-            break;
-    }
+    drain_pictures(ctx, callback);
     return 0;
 }

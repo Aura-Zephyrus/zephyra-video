@@ -76,10 +76,12 @@ int z_mjpeg_decode(void *handle, const uint8_t *data, int len,
 {
     struct z_mjpeg_ctx *ctx = handle;
     struct jpeg_decompress_struct *cinfo;
-    uint8_t *full = NULL;
-    uint8_t *y = NULL, *u = NULL, *v = NULL, *row = NULL;
+    /* setjmp 之后赋值、longjmp 之后仍要用的局部变量必须是 volatile，
+     * 否则它们的值在 longjmp 后是不确定的，free() 会释放野指针。 */
+    uint8_t *volatile full = NULL;
+    uint8_t *volatile y = NULL, *volatile u = NULL, *volatile v = NULL, *volatile row = NULL;
     int w, h, cw, ch, x, y0;
-    int ret = -1;
+    int volatile ret = -1;
 
     if (!ctx || !ctx->ready || !data || len <= 0)
         return -1;
@@ -123,7 +125,8 @@ int z_mjpeg_decode(void *handle, const uint8_t *data, int len,
     /* Deinterleave Y and 2x2 box-filter Cb/Cr into 4:2:0 planes. */
     for (y0 = 0; y0 < h; y0++) {
         const uint8_t *src = full + (size_t)y0 * (size_t)w * 3;
-        memcpy(y + (size_t)y0 * (size_t)w, src, (size_t)w);
+        for (x = 0; x < w; x++)
+            y[(size_t)y0 * (size_t)w + (size_t)x] = src[(size_t)x * 3];
     }
     for (y0 = 0; y0 < ch; y0++) {
         for (x = 0; x < cw; x++) {

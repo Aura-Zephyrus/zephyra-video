@@ -245,6 +245,10 @@ impl VideoDecoderConfig {
             && !self.natural_size.is_empty()
             && Rect::new(0, 0, self.coded_size.width, self.coded_size.height)
                 .contains(&self.visible_rect)
+            // Chromium 的 IsValidConfig() 也查这一条：profile 必须属于 codec。
+            // Unknown 是合法兜底（调用方可能只知道 codec）。
+            && (self.profile == VideoCodecProfile::Unknown
+                || self.profile.codec() == self.codec)
     }
 
     /// 两份配置是否完全一致（`extra_data` 按内容比，不按指针）。

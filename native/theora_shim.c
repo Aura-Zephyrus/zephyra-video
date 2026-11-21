@@ -19,6 +19,7 @@ typedef struct {
     th_setup_info *setup;
     th_dec_ctx *dec;
     int headers_done;
+    int packets_seen;
 } z_theora_ctx;
 
 typedef void (*z_theora_frame_cb)(int w, int h, int bpc, int layout,
@@ -56,6 +57,30 @@ void z_theora_close(void *handle)
     free(ctx);
 }
 
+int z_theora_flush(void *handle, z_theora_frame_cb callback)
+{
+    z_theora_ctx *ctx = handle;
+    ogg_packet op;
+    th_ycbcr_buffer buf;
+    int ret;
+
+    if (!ctx || !ctx->headers_done || !ctx->dec)
+        return 0;
+    memset(&op, 0, sizeof(op));
+    op.e_o_s = 1;
+    ret = th_decode_packetin(ctx->dec, &op, NULL);
+    if (ret < 0)
+        return 0;
+    if (th_decode_ycbcr_out(ctx->dec, buf) == 0 && callback &&
+        buf[0].data && buf[1].data && buf[2].data) {
+        callback(buf[0].width, buf[0].height, 8, 1,
+                 buf[0].data, (ptrdiff_t)buf[0].stride,
+                 buf[1].data, (ptrdiff_t)buf[1].stride,
+                 buf[2].data, (ptrdiff_t)buf[2].stride);
+    }
+    return 0;
+}
+
 int z_theora_decode(void *handle, const uint8_t *data, int len,
                     z_theora_frame_cb callback)
 {
@@ -70,6 +95,10 @@ int z_theora_decode(void *handle, const uint8_t *data, int len,
     memset(&op, 0, sizeof(op));
     op.packet = (unsigned char *)data;
     op.bytes = len;
+    /* libtheora rejects the first header unless b_o_s is set. */
+    op.b_o_s = ctx->packets_seen == 0;
+    op.packetno = ctx->packets_seen;
+    ctx->packets_seen++;
 
     if (!ctx->headers_done) {
         ret = th_decode_headerin(&ctx->info, &ctx->comment, &ctx->setup, &op);

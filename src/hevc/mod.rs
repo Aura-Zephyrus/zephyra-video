@@ -11,15 +11,30 @@ use std::ffi::{c_int, c_void};
 use crate::buffer::DecoderBuffer;
 use crate::config::VideoDecoderConfig;
 use crate::decoder::{VideoDecoder, VideoDecoderType};
-use crate::ffi_util::{frame_from_planes, LAYOUT_I420};
+use crate::ffi_util::{frame_from_planes, set_decode_timing, LAYOUT_I420};
 use crate::frame::VideoFrame;
 use crate::status::{DecoderStatus, DecoderStatusCode};
 use crate::VideoCodec;
 
-extern "C" {
+crate::codec_api!("z_hevc";
     fn z_hevc_open() -> *mut c_void;
     fn z_hevc_close(handle: *mut c_void);
     fn z_hevc_reset(handle: *mut c_void);
+    fn z_hevc_flush(
+        handle: *mut c_void,
+        callback: extern "C" fn(
+            c_int,
+            c_int,
+            c_int,
+            c_int,
+            *const u8,
+            c_int,
+            *const u8,
+            c_int,
+            *const u8,
+            c_int,
+        ),
+    ) -> c_int;
     fn z_hevc_decode(
         handle: *mut c_void,
         data: *const u8,
@@ -37,7 +52,8 @@ extern "C" {
             c_int,
         ),
     ) -> c_int;
-}
+
+);
 
 thread_local! {
     static OUTPUT: RefCell<Vec<VideoFrame>> = const { RefCell::new(Vec::new()) };
@@ -109,6 +125,9 @@ impl VideoDecoder for HevcDecoder {
         if !config.is_valid_config() {
             return DecoderStatus::new(DecoderStatusCode::UnsupportedConfig);
         }
+        if let Some(status) = crate::check_lib!("z_hevc") {
+            return status;
+        }
         // SAFETY: z_hevc_open returns an opaque handle or NULL.
         let handle = unsafe { z_hevc_open() };
         if handle.is_null() {
@@ -128,6 +147,8 @@ impl VideoDecoder for HevcDecoder {
         }
         OUTPUT.with(|sink| sink.borrow_mut().clear());
         if !buffer.is_end_of_stream() && !buffer.data().is_empty() {
+            // 延迟帧在 EOS 时才吐出：保留最后一次数据帧的时基。
+            set_decode_timing(buffer.timestamp(), buffer.duration());
             // SAFETY: `data` stays alive for this call; the shim consumes it.
             let ret = unsafe {
                 z_hevc_decode(
@@ -141,6 +162,16 @@ impl VideoDecoder for HevcDecoder {
                 return Err(DecoderStatus::with_message(
                     DecoderStatusCode::MalformedBitstream,
                     format!("de265_decode failed ({ret})"),
+                ));
+            }
+        }
+        if buffer.is_end_of_stream() {
+            // SAFETY: `on_frame` only writes to the thread-local sink.
+            let ret = unsafe { z_hevc_flush(self.handle, on_frame) };
+            if ret < 0 {
+                return Err(DecoderStatus::with_message(
+                    DecoderStatusCode::Failed,
+                    format!("de265 EOS flush failed ({ret})"),
                 ));
             }
         }

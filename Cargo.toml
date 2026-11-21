@@ -2,7 +2,7 @@
 name = "zephyra-video"
 version = "0.1.0"
 edition = "2021"
-description = "Video decoding shaped after Chromium's media pipeline: VideoDecoder, DecoderSelector, H.264 bitstream parsing, DXVA2 hardware decode, vendored uavs3d (AVS3), dav1d (AV1), libvpx (VP8/VP9), libde265 (HEVC), OpenH264 (H.264), xevd (EVC), vvdec (VVC), libtheora (Theora), libjpeg-turbo (MJPEG)"
+description = "Video decoding shaped after Chromium's media pipeline: VideoDecoder, DecoderSelector, H.264 bitstream parsing, DXVA2 hardware decode, vendored uavs3d (AVS3), dav1d (AV1), libvpx (VP8/VP9), libde265 (HEVC), OpenH264 (H.264), xevd (EVC), vvdec (VVC), libtheora (Theora), libjpeg-turbo (MJPEG); audio: PCM, minimp3 (MP3), libopus, libvorbis, libFLAC"
 license = "MIT OR Apache-2.0"
 rust-version = "1.87"
 publish = false
@@ -41,14 +41,29 @@ vvc = ["dep:cc"]
 theora = ["dep:cc"]
 # MJPEG 解码：vendored libjpeg-turbo 2.1.5.1（BSD-3 / IJG）。
 mjpeg = ["dep:cc"]
-# 动态库模式：把 vendored C 编解码器链成共享库而非静态塞进 exe。
-# 需与具体 codec feature 组合使用（如 `dynamic,uavs3d`）。
-dynamic = []
+# 音频：MP3（vendored minimp3，CC0）。
+mp3 = ["dep:cc"]
+# 音频：Opus（vendored libopus，BSD-3）。
+opus = ["dep:cc"]
+# 音频：Vorbis（vendored libvorbis，BSD-3）。
+vorbis = ["dep:cc"]
+# 音频：FLAC（vendored libFLAC，BSD-3）。
+flac = ["dep:cc"]
+# 运行时动态加载：vendored C 编解码器编成共享库，Rust 侧显式 dlopen/LoadLibrary。
+# 缺库/缺符号不会让进程启动失败，而是通过 DynamicLoadReport 暴露给主程序。
+dynamic = ["dep:libloading"]
+# 聚合 feature：一键开启某一类解码器。单独的 codec feature 依然可以任意组合。
+# 注意 video 不含 dxva2（Windows 专属硬件后端），all-codecs 不含 dynamic（链接模式）。
+video = ["uavs3d", "av1", "vp9", "vp8", "hevc", "evc", "h264", "vvc", "theora", "mjpeg"]
+audio = ["mp3", "opus", "vorbis", "flac"]
+all-codecs = ["video", "audio"]
 
 [build-dependencies]
 cc = { version = "1.6", optional = true }
 
 [dependencies]
+# 仅 dynamic feature 打开时用于运行时加载共享库。
+libloading = { version = "0.8", optional = true }
 # 核心零依赖：视频解码的词汇（配置 / 缓冲 / 帧 / 选择器 / 位流解析）
 # 不需要任何外部 crate。
 

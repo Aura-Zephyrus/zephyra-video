@@ -46,7 +46,20 @@ EVC / VVC，全部是 vendored C/C++ 库 + 薄 shim，默认构建一行 C 都�
 | `vvc` | `cc`（构建期） | vendored vvdec（Clear BSD-3-Clause，输出 8bit I420） |
 | `theora` | `cc`（构建期） | vendored libtheora + libogg headers（BSD-3，输出 8bit I420） |
 | `mjpeg` | `cc`（构建期） | vendored libjpeg-turbo（BSD-3/IJG，输出 8bit I420） |
+| 无（默认） | 无 | 音频：纯 Rust PCM 解码器（S16/F32/U8 → planar） |
+| `mp3` | `cc`（构建期） | 音频：vendored minimp3（CC0，输出 planar S16） |
+| `opus` | `cc`（构建期） | 音频：vendored libopus（BSD-3，输出 planar S16） |
+| `vorbis` | `cc`（构建期） | 音频：vendored libvorbis（BSD-3，输出 planar F32） |
+| `flac` | `cc`（构建期） | 音频：vendored libFLAC（BSD-3，输出 planar S32） |
+| `video` | 上方全部视频 feature | 一键开启所有软件视频解码器（不含 `dxva2`） |
+| `audio` | 上方全部音频 feature | 一键开启所有音频解码器（PCM 本就默认可用） |
+| `all-codecs` | `video` + `audio` | 一键开启所有编解码器（不含 `dynamic`） |
 
+所有单独 feature 仍可任意组合，例如 `--features h264,mp3`。`video` 刻意不含
+`dxva2`（Windows 专属硬件后端）；`all-codecs` 刻意不含 `dynamic`（链接模式），
+两者都需要时显式加上。
+
+音频侧与视频侧对称：`AudioCodec` / `AudioDecoderConfig` / `AudioBuffer` / `AudioFrame` / `AudioDecoder`。
 10bit（YUV420P10）目前由 AV1 / VP9 / HEVC / EVC / VVC 五个后端支持；H.264 与 AVS3 仍是 8bit。
 
 `dxva2` 模块**默认就存在**——里面的 DPB 与图片参数是纯逻辑，没有 GPU 的机器
@@ -61,12 +74,32 @@ EVC / VVC，全部是 vendored C/C++ 库 + 薄 shim，默认构建一行 C 都�
 - Linux：`cc -shared`，产出 `lib<name>.so`，Rust 二进制带 `$ORIGIN` rpath
 - macOS：`cc -dynamiclib`，产出 `lib<name>.dylib`，带 `@loader_path`
 
-Rust 侧 `extern "C"` 声明不用改——build.rs 发 `cargo:rustc-link-lib=dylib=<name>`
-让它们直接动态链接。实现上先把源码打成静态归档，再用常规归档语义链进共享库，
-只拉入被引用的 object，避免把 vendored 源码里未使用的内部符号暴露出来。
+**运行时加载，缺库不影响启动**：`build.rs` 不再发 `rustc-link-lib=dylib`。
+Rust 侧通过 [`libloading`] 在第一次使用某解码器时显式打开共享库并解析符号，
+调用点写法与静态构建完全一致（`codec_api!` 宏在两种模式下生成同样的函数名）。
+共享库在 exe 所在目录（或其上一级、`CWD`）中查找。
 
-共享库产物文件名会写进 `zephyra_dynamic_libs.txt`（exe 同目录），
-`zephyra_fx::link_check::ensure_dynamic_libs()` 据此在启动时做缺库自检。
+加载失败**不会**让进程启动失败，而是记录在 `DynamicLoadReport` 里，交给主程序决策：
+
+```rust
+use zephyra_video::{load_all, current_report, library_status};
+
+let report = load_all();              // 主动加载所有已启用的共享库
+if !report.is_ok() {
+    for lib in report.failures() {
+        eprintln!("{:?}: {}", lib.name, lib.result);
+    }
+    // 由主程序决定：继续运行部分功能 / 提示用户 / 退出
+}
+let _ = current_report();             // 当前快照
+let _ = library_status("z_h264");     // 查询单个库
+```
+
+另外，每个解码器的 `initialize()` 也会检查对应库：若加载失败，返回带具体
+原因的 `DecoderStatus`（`FailedToCreateDecoder` + "dynamic library ... unavailable"）。
+未开 `dynamic` feature 时这些 API 不编译，构建仍是零新增依赖。
+
+共享库产物文件名同时写进 `zephyra_dynamic_libs.txt`（exe 同目录）供打包脚本使用。
 
 分发时必须带上这些共享库与 `native/*/` 下的许可证文件；LGPL 的 libde265
 另有源码提供义务。
@@ -90,6 +123,11 @@ cargo test --features evc
 cargo test --features vvc
 cargo test --features theora
 cargo test --features mjpeg
+cargo test --features mp3,opus,vorbis,flac
+cargo test --features video                              # 所有软件视频解码器
+cargo test --features audio                              # 所有音频解码器
+cargo test --features all-codecs                         # 全部编解码器
+cargo test --features dynamic,h264,evc,vvc,theora,mjpeg   # 共享库链接模式
 cargo test --all-features
 ```
 
@@ -111,14 +149,20 @@ vendored 的 C/C++ 代码各有许可证，`native/` 下各目录保留了原始
 | `native/vvdec/` | Clear BSD-3-Clause（含 `thirdparty/simde`，BSD-2-Clause） |
 | `native/theora/` | BSD-3-Clause（Xiph.org；含 libogg 的 BSD-3 headers） |
 | `native/libjpeg/` | BSD-3-Clause / IJG License（libjpeg-turbo 2.1.5.1） |
+| `native/minimp3/` | CC0 1.0（minimp3） |
+| `native/libopus/` | BSD-3-Clause（libopus） |
+| `native/libvorbis/` + `native/libogg/` | BSD-3-Clause（Xiph.org） |
+| `native/libflac/` | BSD-3-Clause（Xiph.org） |
 
 再分发时必须一并带上这些许可证文件。
 
 ## 已知限制
 
-- 没有音频解码器。
+- 音频解码不含 AAC：没有干净的 BSD/CC0 解码器，需引入 FFmpeg(LGPL) 或 libfaad2(GPL)。
+- Opus/Vorbis 的 Ogg 封装需调用方解复用成一个个 packet 后送入 `AudioBuffer`；MP3/FLAC/PCM 可直接送整段字节流。
 - 硬件解码只有 Windows DXVA2，没有 Media Foundation / VideoToolbox / VAAPI。
-- 软件解码器的 FFI 烟测不覆盖真实码流（本机无样片）。
+- `tests/real_streams.rs`（21 个测试）验证 9 种格式能出帧、格式尺寸正确、reset 后能再解码；`tests/playback.rs`（12 个测试）用 ffmpeg 预生成的 8 帧参考 YUV 做逐帧 Y 平面比对，并验证时间戳与帧数。
+- HEVC 回放 fixture 带 B 帧；按 `DecoderBuffer = 一个访问单元` 的契约逐 AU 送入即可完整输出 8 帧（整段流塞进一个 buffer 会丢尾帧）。Theora 的输出与 ffmpeg 参考在像素值上有系统差异（后处理/色度范围），回放测试改为校验帧数、时基与"画面确实逐帧变化"，不做逐像素比对。
 - 10bit 仅覆盖 AV1 / VP9 / HEVC / EVC / VVC；输出为 3 平面 `YUV420P10`（`P010LE` 布局已支持但暂未接入）。
 - Theora 包在 Ogg 页里：调用方需先做 Ogg 解复用，每个 `DecoderBuffer` 传一个 Theora packet（含头部包）。
 - MJPEG 每个 `DecoderBuffer` 必须是一个完整 JPEG 帧；输出固定 4:2:0（其它色度采样先上采样再 2×2 下采样）。

@@ -55,7 +55,7 @@ struct Uavs3dIoFrm {
     seqhdr: *mut c_void,
 }
 
-extern "C" {
+crate::codec_api!("uavs3d";
     fn uavs3d_create(
         cfg: *mut Uavs3dCfg,
         callback: Option<extern "C" fn(*mut Uavs3dIoFrm)>,
@@ -65,7 +65,7 @@ extern "C" {
     fn uavs3d_reset(handle: *mut c_void);
     fn uavs3d_decode(handle: *mut c_void, frame: *mut Uavs3dIoFrm) -> c_int;
     fn uavs3d_flush(handle: *mut c_void, frame: *mut Uavs3dIoFrm) -> c_int;
-}
+);
 
 thread_local! {
     /// 解码回调把输出帧放进这里，`decode` / `flush` 返回后立刻取走。
@@ -233,6 +233,9 @@ impl VideoDecoder for Uavs3dDecoder {
         }
         if !config.is_valid_config() {
             return DecoderStatus::new(DecoderStatusCode::UnsupportedConfig);
+        }
+        if let Some(status) = crate::check_lib!("uavs3d") {
+            return status;
         }
         let mut cfg = Uavs3dCfg {
             input_file: std::ptr::null(),

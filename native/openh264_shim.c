@@ -52,6 +52,42 @@ void z_h264_close(void *handle)
  * Feed one access unit (Annex-B) and emit at most one picture.
  * Returns 0 on success (including "no picture ready yet"), negative on error.
  */
+static void emit_frame(const SBufferInfo *info, unsigned char **dst,
+                       z_h264_frame_cb callback)
+{
+    if (info->iBufferStatus == 1 && dst[0] && dst[1] && dst[2] &&
+        info->UsrData.sSystemBuffer.iFormat == videoFormatI420 &&
+        info->UsrData.sSystemBuffer.iWidth > 0 &&
+        info->UsrData.sSystemBuffer.iHeight > 0 && callback) {
+        callback(info->UsrData.sSystemBuffer.iWidth,
+                 info->UsrData.sSystemBuffer.iHeight, 8, 1,
+                 dst[0], (ptrdiff_t)info->UsrData.sSystemBuffer.iStride[0],
+                 dst[1], (ptrdiff_t)info->UsrData.sSystemBuffer.iStride[1],
+                 dst[2], (ptrdiff_t)info->UsrData.sSystemBuffer.iStride[1]);
+    }
+}
+
+/* End-of-stream: drain pictures still buffered in OpenH264. */
+int z_h264_flush(void *handle, z_h264_frame_cb callback)
+{
+    ISVCDecoder *dec = handle;
+    unsigned char *dst[3];
+    SBufferInfo info;
+    DECODING_STATE state;
+
+    if (!dec)
+        return -1;
+    for (;;) {
+        dst[0] = dst[1] = dst[2] = NULL;
+        memset(&info, 0, sizeof(info));
+        state = (*dec)->FlushFrame(dec, dst, &info);
+        if (state != dsErrorFree || info.iBufferStatus != 1)
+            break;
+        emit_frame(&info, dst, callback);
+    }
+    return 0;
+}
+
 int z_h264_decode(void *handle, const uint8_t *data, int len,
                   z_h264_frame_cb callback)
 {
@@ -65,22 +101,18 @@ int z_h264_decode(void *handle, const uint8_t *data, int len,
 
     memset(&info, 0, sizeof(info));
     state = (*dec)->DecodeFrameNoDelay(dec, data, len, dst, &info);
-    if (state != dsErrorFree)
+    if (state != dsErrorFree && state != dsFramePending)
         return -1;
+    emit_frame(&info, dst, callback);
 
-    if (info.iBufferStatus == 1 && dst[0] && dst[1] && dst[2] &&
-        info.UsrData.sSystemBuffer.iFormat == videoFormatI420 &&
-        info.UsrData.sSystemBuffer.iWidth > 0 &&
-        info.UsrData.sSystemBuffer.iHeight > 0 && callback) {
-        const int w = info.UsrData.sSystemBuffer.iWidth;
-        const int h = info.UsrData.sSystemBuffer.iHeight;
-        const int ys = info.UsrData.sSystemBuffer.iStride[0];
-        const int us = info.UsrData.sSystemBuffer.iStride[1];
-        /* 8-bit 4:2:0 -> I420 (layout 1). */
-        callback(w, h, 8, 1,
-                 dst[0], (ptrdiff_t)ys,
-                 dst[1], (ptrdiff_t)us,
-                 dst[2], (ptrdiff_t)us);
+    /* OpenH264 会延迟一帧：用空输入把排在后面的帧泵出来。 */
+    for (int i = 0; i < 4; i++) {
+        dst[0] = dst[1] = dst[2] = NULL;
+        memset(&info, 0, sizeof(info));
+        state = (*dec)->DecodeFrameNoDelay(dec, NULL, 0, dst, &info);
+        if (state != dsErrorFree || info.iBufferStatus != 1)
+            break;
+        emit_frame(&info, dst, callback);
     }
     return 0;
 }

@@ -19,6 +19,8 @@ use crate::status::{DecoderStatus, DecoderStatusCode};
 #[cfg(feature = "uavs3d")]
 #[allow(unsafe_code)]
 mod imp;
+#[cfg(all(feature = "uavs3d", feature = "dynamic"))]
+pub use imp::ensure_loaded;
 #[cfg(feature = "uavs3d")]
 pub use imp::Uavs3dDecoder;
 

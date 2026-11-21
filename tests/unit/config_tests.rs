@@ -21,6 +21,38 @@ fn base_config() -> VideoDecoderConfig {
 }
 
 #[test]
+fn profile_must_belong_to_the_codec() {
+    let mut config = base_config();
+    assert!(config.is_valid_config());
+
+    // Unknown 是合法兜底。
+    config.set_profile(VideoCodecProfile::Unknown);
+    assert!(config.is_valid_config());
+
+    // profile 与 codec 不匹配 ⇒ 配置无效。
+    config.set_profile(VideoCodecProfile::VP9Profile0);
+    assert!(!config.is_valid_config());
+
+    // 新扩展的枚举也要对得上。
+    config.set_profile(VideoCodecProfile::MjpegAny);
+    config = VideoDecoderConfig::new(
+        VideoCodec::Mjpeg,
+        config.profile(),
+        level_8bit_420(),
+        AlphaMode::IsOpaque,
+        bt601_color_space(),
+        VideoTransformation::None,
+        Size::new(64, 64),
+        Rect::new(0, 0, 64, 64),
+        Size::new(64, 64),
+        Vec::new(),
+    );
+    assert!(config.is_valid_config());
+    config.set_profile(VideoCodecProfile::VvcProfileMain10);
+    assert!(!config.is_valid_config());
+}
+
+#[test]
 fn getters_return_what_was_passed_in() {
     let config = base_config();
     assert_eq!(config.codec(), VideoCodec::H264);

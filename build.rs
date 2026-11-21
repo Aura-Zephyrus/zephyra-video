@@ -35,17 +35,36 @@ const HEVC_EXPORTS: &[&str] = &[
     "z_hevc_close",
     "z_hevc_reset",
     "z_hevc_decode",
+    "z_hevc_flush",
 ];
 #[allow(dead_code)]
 const EVC_EXPORTS: &[&str] = &["z_evc_open", "z_evc_close", "z_evc_decode"];
 #[allow(dead_code)]
-const H264_EXPORTS: &[&str] = &["z_h264_open", "z_h264_close", "z_h264_decode"];
+const H264_EXPORTS: &[&str] = &[
+    "z_h264_open",
+    "z_h264_close",
+    "z_h264_decode",
+    "z_h264_flush",
+];
 #[allow(dead_code)]
-const VVC_EXPORTS: &[&str] = &["z_vvc_open", "z_vvc_close", "z_vvc_decode"];
+const VVC_EXPORTS: &[&str] = &["z_vvc_open", "z_vvc_close", "z_vvc_decode", "z_vvc_flush"];
 #[allow(dead_code)]
-const THEORA_EXPORTS: &[&str] = &["z_theora_open", "z_theora_close", "z_theora_decode"];
+const THEORA_EXPORTS: &[&str] = &[
+    "z_theora_open",
+    "z_theora_close",
+    "z_theora_decode",
+    "z_theora_flush",
+];
 #[allow(dead_code)]
 const MJPEG_EXPORTS: &[&str] = &["z_mjpeg_open", "z_mjpeg_close", "z_mjpeg_decode"];
+#[allow(dead_code)]
+const MP3_EXPORTS: &[&str] = &["z_mp3_open", "z_mp3_close", "z_mp3_decode"];
+#[allow(dead_code)]
+const OPUS_EXPORTS: &[&str] = &["z_opus_open", "z_opus_close", "z_opus_decode"];
+#[allow(dead_code)]
+const VORBIS_EXPORTS: &[&str] = &["z_vorbis_open", "z_vorbis_close", "z_vorbis_decode"];
+#[allow(dead_code)]
+const FLAC_EXPORTS: &[&str] = &["z_flac_open", "z_flac_close", "z_flac_decode"];
 
 /// CLI 通过 ZEPHYRA_LINK_MODE 选模式；显式 feature 也可打开。
 #[allow(dead_code)]
@@ -68,7 +87,11 @@ fn dynamic_mode() -> bool {
     feature = "h264",
     feature = "vvc",
     feature = "theora",
-    feature = "mjpeg"
+    feature = "mjpeg",
+    feature = "mp3",
+    feature = "opus",
+    feature = "vorbis",
+    feature = "flac"
 ))]
 #[cfg(any(
     feature = "uavs3d",
@@ -80,7 +103,11 @@ fn dynamic_mode() -> bool {
     feature = "h264",
     feature = "vvc",
     feature = "theora",
-    feature = "mjpeg"
+    feature = "mjpeg",
+    feature = "mp3",
+    feature = "opus",
+    feature = "vorbis",
+    feature = "flac"
 ))]
 fn finish_codec(build: &mut cc::Build, name: &str, exports: &[&str]) {
     if dynamic_mode() {
@@ -133,7 +160,11 @@ fn finish_uavs3d(base: &mut cc::Build, avx2: Option<&mut cc::Build>) {
     feature = "h264",
     feature = "vvc",
     feature = "theora",
-    feature = "mjpeg"
+    feature = "mjpeg",
+    feature = "mp3",
+    feature = "opus",
+    feature = "vorbis",
+    feature = "flac"
 ))]
 mod dynamic {
     use std::path::{Path, PathBuf};
@@ -155,10 +186,9 @@ mod dynamic {
         let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
         let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
 
-        // Rust 侧用 `#[link(kind = "dylib")]` 形状链接；导入库/共享库目录都给。
-        println!("cargo:rustc-link-search=native={}", profile.display());
-        println!("cargo:rustc-link-search=native={}", out.display());
-        println!("cargo:rustc-link-lib=dylib={name}");
+        // 运行时加载：不再发 dylib 链接指令，缺库不会让 exe 启动失败；
+        // Rust 侧通过 libloading 显式加载，失败写入 DynamicLoadReport。
+        let _ = out;
 
         let mut cmd = if os == "windows" && env == "msvc" {
             let def = out.join(format!("{name}.def"));
@@ -295,6 +325,14 @@ fn main() {
     build_theora();
     #[cfg(feature = "mjpeg")]
     build_mjpeg();
+    #[cfg(feature = "mp3")]
+    build_mp3();
+    #[cfg(feature = "opus")]
+    build_opus();
+    #[cfg(feature = "vorbis")]
+    build_vorbis();
+    #[cfg(feature = "flac")]
+    build_flac();
 }
 
 #[cfg(feature = "uavs3d")]
@@ -379,7 +417,11 @@ fn build_uavs3d() {
     feature = "h264",
     feature = "vvc",
     feature = "theora",
-    feature = "mjpeg"
+    feature = "mjpeg",
+    feature = "mp3",
+    feature = "opus",
+    feature = "vorbis",
+    feature = "flac"
 ))]
 fn msvc_system_includes() -> Vec<std::path::PathBuf> {
     use std::path::PathBuf;
@@ -422,7 +464,11 @@ fn msvc_system_includes() -> Vec<std::path::PathBuf> {
     feature = "h264",
     feature = "vvc",
     feature = "theora",
-    feature = "mjpeg"
+    feature = "mjpeg",
+    feature = "mp3",
+    feature = "opus",
+    feature = "vorbis",
+    feature = "flac"
 ))]
 fn latest_subdir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     std::fs::read_dir(dir)
@@ -1139,4 +1185,188 @@ fn build_mjpeg() {
     }
     build.file(root.parent().unwrap().join("mjpeg_shim.c"));
     finish_codec(&mut build, "z_mjpeg", MJPEG_EXPORTS);
+}
+
+/// MP3 decoding via vendored minimp3 (CC0 public domain).
+#[cfg(feature = "mp3")]
+fn build_mp3() {
+    use std::path::Path;
+
+    let root = Path::new("native/minimp3");
+    println!("cargo:rerun-if-changed=native/minimp3");
+    println!("cargo:rerun-if-changed=native/mp3_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let mut build = cc::Build::new();
+    build.include(root).warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+    build.file(root.parent().unwrap().join("mp3_shim.c"));
+    finish_codec(&mut build, "z_mp3", MP3_EXPORTS);
+}
+
+/// Opus decoding via vendored libopus (BSD-3), pure-C fixed-point build.
+#[cfg(feature = "opus")]
+fn build_opus() {
+    use std::path::PathBuf;
+
+    let root = std::path::Path::new("native/libopus");
+    println!("cargo:rerun-if-changed=native/libopus");
+    println!("cargo:rerun-if-changed=native/opus_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let mut build = cc::Build::new();
+    build
+        .include(root.join("include"))
+        .include(root.join("src"))
+        .include(root.join("celt"))
+        .include(root.join("silk"))
+        .include(root.join("silk/fixed"))
+        .define("FIXED_POINT", "1")
+        .define("NONTHREADSAFE_PSEUDOSTACK", None)
+        .define("OPUS_BUILD", None)
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+
+    // Top-level sources of each subproject (no SIMD asm, no demos/tests).
+    const EXCLUDE: &[&str] = &[
+        "opus_demo.c",
+        "repacketizer_demo.c",
+        "opus_compare.c",
+        "osce_compare.c",
+        "qext_compare.c",
+        "analysis.c",
+        "mlp.c",
+        "mlp_data.c",
+    ];
+    for dir in ["src", "celt", "silk", "silk/fixed"] {
+        let path = root.join(dir);
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.extension().and_then(|s| s.to_str()) == Some("c")
+                    && !EXCLUDE.contains(&p.file_name().unwrap().to_str().unwrap_or(""))
+            })
+            .collect();
+        files.sort();
+        for file in files {
+            build.file(file);
+        }
+    }
+    build.file(root.parent().unwrap().join("opus_shim.c"));
+    finish_codec(&mut build, "z_opus", OPUS_EXPORTS);
+}
+
+/// Vorbis decoding via vendored libvorbis (BSD-3), decoder only.
+#[cfg(feature = "vorbis")]
+fn build_vorbis() {
+    let root = std::path::Path::new("native/libvorbis");
+    println!("cargo:rerun-if-changed=native/libvorbis");
+    println!("cargo:rerun-if-changed=native/vorbis_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let mut build = cc::Build::new();
+    build
+        .include(root.join("include"))
+        .include(root)
+        .include(root.join("modes"))
+        // libogg headers are already vendored for Theora; sources live in libogg/.
+        .include(std::path::Path::new("native/theora/include"))
+        .include(std::path::Path::new("native/libogg"))
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+
+    const SOURCES: &[&str] = &[
+        "mdct.c",
+        "smallft.c",
+        "block.c",
+        "envelope.c",
+        "window.c",
+        "lsp.c",
+        "lpc.c",
+        "synthesis.c",
+        "info.c",
+        "psy.c",
+        "floor1.c",
+        "floor0.c",
+        "res0.c",
+        "mapping0.c",
+        "registry.c",
+        "codebook.c",
+        "sharedbook.c",
+        "lookup.c",
+        "bitrate.c",
+    ];
+    for source in SOURCES {
+        build.file(root.join(source));
+    }
+    let libogg = std::path::Path::new("native/libogg");
+    build.file(libogg.join("bitwise.c"));
+    build.file(libogg.join("framing.c"));
+    build.file(root.parent().unwrap().join("vorbis_shim.c"));
+    finish_codec(&mut build, "z_vorbis", VORBIS_EXPORTS);
+}
+
+/// FLAC decoding via vendored libFLAC (BSD-3), decoder only, no SIMD.
+#[cfg(feature = "flac")]
+fn build_flac() {
+    let root = std::path::Path::new("native/libflac");
+    println!("cargo:rerun-if-changed=native/libflac");
+    println!("cargo:rerun-if-changed=native/flac_shim.c");
+
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let mut build = cc::Build::new();
+    build
+        .include(root.join("include"))
+        .include(root.join("include/share"))
+        .include(root)
+        .define("FLAC__NO_DLL", None)
+        .define("PACKAGE_VERSION", "\"1.5.0\"")
+        .define("FLAC__HAS_OGG", "0")
+        .warnings(false);
+    if msvc {
+        for dir in msvc_system_includes() {
+            build.include(dir);
+        }
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+
+    const SOURCES: &[&str] = &[
+        "bitmath.c",
+        "bitreader.c",
+        "bitwriter.c",
+        "cpu.c",
+        "crc.c",
+        "fixed.c",
+        "float.c",
+        "format.c",
+        "lpc.c",
+        "md5.c",
+        "memory.c",
+        "metadata_iterators.c",
+        "metadata_object.c",
+        "stream_decoder.c",
+        "window.c",
+        "win_utf8_io.c",
+    ];
+    for source in SOURCES {
+        build.file(root.join(source));
+    }
+    build.file(root.parent().unwrap().join("flac_shim.c"));
+    finish_codec(&mut build, "z_flac", FLAC_EXPORTS);
 }

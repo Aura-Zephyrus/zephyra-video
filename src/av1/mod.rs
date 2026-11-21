@@ -14,12 +14,12 @@ use std::ffi::{c_int, c_void};
 use crate::buffer::DecoderBuffer;
 use crate::config::VideoDecoderConfig;
 use crate::decoder::{VideoDecoder, VideoDecoderType};
-use crate::ffi_util::{frame_from_planes, LAYOUT_I420};
+use crate::ffi_util::{frame_from_planes, reopen_decoder, set_decode_timing, LAYOUT_I420};
 use crate::frame::VideoFrame;
 use crate::status::{DecoderStatus, DecoderStatusCode};
 use crate::VideoCodec;
 
-extern "C" {
+crate::codec_api!("z_dav1d";
     fn z_dav1d_open(out: *mut *mut c_void, threads: c_int) -> c_int;
     fn z_dav1d_close(handle: *mut c_void);
     fn z_dav1d_decode(
@@ -39,10 +39,15 @@ extern "C" {
             isize,
         ),
     ) -> c_int;
-}
+);
 
 thread_local! {
     static OUTPUT: RefCell<Vec<VideoFrame>> = const { RefCell::new(Vec::new()) };
+}
+
+/// 单线程打开，供 `reset()` 的通用 reopen helper 使用。
+unsafe extern "C" fn open_single(out: *mut *mut c_void) -> c_int {
+    z_dav1d_open(out, 1)
 }
 
 /// DAV1D_PIXEL_LAYOUT_I420 from dav1d/headers.h.
@@ -100,6 +105,9 @@ impl VideoDecoder for Dav1dDecoder {
         if !config.is_valid_config() {
             return DecoderStatus::new(DecoderStatusCode::UnsupportedConfig);
         }
+        if let Some(status) = crate::check_lib!("z_dav1d") {
+            return status;
+        }
         let mut handle: *mut c_void = std::ptr::null_mut();
         // SAFETY: `handle` is a valid stack out-param; the shim only writes it.
         let ret = unsafe { z_dav1d_open(&mut handle, 1) };
@@ -120,6 +128,8 @@ impl VideoDecoder for Dav1dDecoder {
         }
         OUTPUT.with(|sink| sink.borrow_mut().clear());
         if !buffer.is_end_of_stream() && !buffer.data().is_empty() {
+            // 延迟帧在 EOS 时才吐出：保留最后一次数据帧的时基。
+            set_decode_timing(buffer.timestamp(), buffer.duration());
             // SAFETY: `data` stays alive for this call; the shim consumes it
             // before returning and keeps no pointer.
             let ret = unsafe {
@@ -142,6 +152,12 @@ impl VideoDecoder for Dav1dDecoder {
 
     fn reset(&mut self) {
         OUTPUT.with(|sink| sink.borrow_mut().clear());
+        reopen_decoder(
+            &mut self.handle,
+            &mut self.initialized,
+            |h| unsafe { z_dav1d_close(h) },
+            |out| unsafe { open_single(out) },
+        );
     }
 
     fn decoder_type(&self) -> VideoDecoderType {

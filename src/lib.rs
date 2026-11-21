@@ -72,6 +72,7 @@
 //! 所以本 crate 的 Windows 后端也走 DXVA2：形状与 Chromium 一致，
 //! 输出同样是 GPU 纹理。
 
+pub mod audio;
 #[cfg(feature = "av1")]
 #[allow(unsafe_code)]
 pub mod av1;
@@ -80,6 +81,8 @@ pub mod codec;
 pub mod config;
 pub mod decoder;
 pub mod dxva2;
+#[cfg(feature = "dynamic")]
+pub mod dynamic_loader;
 #[cfg(feature = "evc")]
 #[allow(unsafe_code)]
 pub mod evc;
@@ -91,6 +94,7 @@ pub mod h264;
 #[cfg(feature = "hevc")]
 #[allow(unsafe_code)]
 pub mod hevc;
+mod macros;
 #[cfg(feature = "mjpeg")]
 #[allow(unsafe_code)]
 pub mod mjpeg;
@@ -110,6 +114,18 @@ pub mod vp9;
 #[allow(unsafe_code)]
 pub mod vvc;
 
+#[cfg(feature = "flac")]
+pub use audio::FlacDecoder;
+#[cfg(feature = "mp3")]
+pub use audio::Mp3Decoder;
+#[cfg(feature = "opus")]
+pub use audio::OpusDecoder;
+#[cfg(feature = "vorbis")]
+pub use audio::VorbisDecoder;
+pub use audio::{
+    AudioBuffer, AudioCodec, AudioDecoder, AudioDecoderConfig, AudioDecoderType, AudioFrame,
+    AudioSampleFormat, PcmDecoder,
+};
 #[cfg(feature = "av1")]
 pub use av1::Dav1dDecoder;
 pub use buffer::DecoderBuffer;
@@ -119,6 +135,10 @@ pub use config::{
     VideoAspectRatio, VideoColorSpace, VideoDecoderConfig, VideoTransformation,
 };
 pub use decoder::{VideoDecoder, VideoDecoderType};
+#[cfg(feature = "dynamic")]
+pub use dynamic_loader::{
+    current_report, library_status, load_all, DynamicLoadReport, LoadFailure,
+};
 #[cfg(feature = "evc")]
 pub use evc::XevdDecoder;
 pub use frame::{
